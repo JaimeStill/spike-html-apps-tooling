@@ -27,6 +27,6 @@ The architecture pages that apply, in the architecture repository:
   `From|Adapted from <repo> (<commit>): <path>`. It names the immediate source alone; that source
   keeps the earlier lines.
 - Sources use `.ts` relative specifiers, which tsc rewrites.
-- The browser tier tests `dist/`: a test imports the package by its own name, or runs its bin, as
-  a consumer does.
+- The tests test `dist/`: a test imports the package by its own name, or runs its bin, as a
+  consumer does.
 - A mise task runs one script or one command, and `check` is a depends list.

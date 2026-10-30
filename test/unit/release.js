@@ -3,7 +3,8 @@
 // executable, and the Apache 2.0 LICENSE it declares. test/unit/release.test.js runs it on a pnpm
 // pack.
 // Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.js, with no export
-// resolution, its manifest held to no scripts and no dependencies, and its bin to executable.
+// resolution, which the tests' imports by the package's name exercise, its manifest held to no
+// scripts and no dependencies, and its bin to executable.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";

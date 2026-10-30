@@ -1,7 +1,8 @@
 // The release's integrity: a pnpm pack of the build, extracted, against the sources, the
 // manifest's install fields and bin, and its license, by release.js's releaseProblems, as it stands
 // and in scratch copies with one fault each. It packs the dist/ that mise run build writes.
-// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.test.js, with no budget.
+// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.test.js, with no brotli
+// budget, since nothing the package ships loads in a page.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
