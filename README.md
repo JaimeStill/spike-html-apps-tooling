@@ -157,7 +157,7 @@ mise run currency  # report every tool, package, and action pin behind its lates
 ```
 
 The check lints with ESLint, Prettier, shellcheck, and actionlint, type-checks the TypeScript
-sources and the JavaScript tests with tsc, and builds `dist/`. The unit tier tests the server and
+sources and the TypeScript tests with tsc, and builds `dist/`. The unit tier tests the server and
 packs the build to check the pack's shape. The browser tier runs the driver, the server, and the
 bin from `dist/` in the pinned chrome-headless-shell.
 
