@@ -21,8 +21,11 @@ const settings = { lang: "en-US", tz: "UTC", width: 1280, height: 720 };
  */
 export async function launch() {
   const executable = process.env.BROWSER_EXECUTABLE;
-  if (!executable)
-    throw new Error("BROWSER_EXECUTABLE names no browser: run mise run test:browser");
+  if (!executable) {
+    throw new Error(
+      "BROWSER_EXECUTABLE names no browser; set it to a Chrome or chrome-headless-shell executable",
+    );
+  }
   const profile = mkdtempSync(join(tmpdir(), "browser-pipe."));
   const child = spawn(
     executable,
@@ -37,8 +40,9 @@ export async function launch() {
       "--no-first-run",
       "--disable-background-networking",
       "--disable-component-update",
-      // Every name but the loopback address fails, so no background request leaves the machine.
-      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+      // Every name but the loopback address and localhost fails, so no background request leaves
+      // the machine.
+      "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost",
       "about:blank",
     ],
     {
@@ -115,8 +119,17 @@ export async function launch() {
     listeners.set(`${sessionId}:${method}`, listener);
   };
 
-  // A run that ends without closing the browser still ends it.
-  const orphan = () => child.kill();
+  // A run that ends without closing the browser still ends it and removes its profile, synchronously,
+  // as an exit listener must. SIGKILL, since a browser shutting down on SIGTERM writes its profile
+  // again after the removal.
+  const orphan = () => {
+    child.kill("SIGKILL");
+    try {
+      rmSync(profile, { recursive: true, force: true });
+    } catch {
+      // The process is exiting: a profile it cannot remove is left, not thrown.
+    }
+  };
   process.once("exit", orphan);
 
   /** Ends the browser, by Browser.close or after 5 s by a signal, and removes its profile. */

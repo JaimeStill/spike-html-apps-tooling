@@ -1,9 +1,12 @@
 // The driver at the package's seam, imported by the package's own name as a consumer imports it:
-// launch and its settings, a page's API, its scrollbars, the page wait, and the settle expression,
-// against data: pages.
+// launch and its settings, its profile's removal on close and on exit, its loopback-only names, a
+// page's API, its scrollbars, the page wait, and the settle expression, against data: pages.
 
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -56,6 +59,81 @@ describe("launch", () => {
       });
     } finally {
       rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  test("a process that exits without close ends the browser and removes its profile", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "browser-test."));
+    try {
+      // The child launches, prints the browser's pid, its one child process (Linux's /proc lists
+      // it), and exits with the browser open.
+      const script = `
+        import { readFileSync } from "node:fs";
+        import { launch } from "@jaimestill/spike-html-apps-tooling/browser.js";
+        await launch();
+        const children = readFileSync(\`/proc/\${process.pid}/task/\${process.pid}/children\`, "utf8");
+        console.log(children.trim());
+        process.exit(0);
+      `;
+      const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+        cwd: import.meta.dirname,
+        env: { ...process.env, TMPDIR: scratch },
+        stdio: ["ignore", "pipe", "inherit"],
+      });
+      let stdout = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      const [code] = await once(child, "exit");
+      assert.equal(code, 0);
+      const pid = Number(stdout.trim());
+      assert.ok(Number.isInteger(pid) && pid > 0, `no browser pid in ${JSON.stringify(stdout)}`);
+
+      /** Whether the process is gone: signal 0 tests for it without sending one. */
+      const gone = () => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        } catch (error) {
+          return /** @type {NodeJS.ErrnoException} */ (error).code === "ESRCH";
+        }
+      };
+      const deadline = performance.now() + 5000;
+      while (!gone() && performance.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      assert.ok(gone(), `the browser, pid ${pid}, outlived the process`);
+      assert.deepEqual(readdirSync(scratch), [], "the profile outlived the process");
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
+  test("resolves only the loopback names, so another name fails with no network", async () => {
+    const server = createServer((_request, response) =>
+      response.writeHead(200, { "content-type": "text/html" }).end("<title>loopback</title>"),
+    );
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const { port } = /** @type {import("node:net").AddressInfo} */ (server.address());
+    const browser = await launch();
+    try {
+      const tab = await browser.open(`http://localhost:${port}/`);
+      try {
+        assert.equal(await tab.evaluate("document.title"), "loopback");
+        // A name the resolver rules map to nothing fails at once, before any lookup leaves the
+        // machine; without the rules this is a DNS lookup, and on a networked machine a load.
+        const started = performance.now();
+        await assert.rejects(tab.goto("http://example.com/"), /ERR_NAME_NOT_RESOLVED/);
+        assert.ok(performance.now() - started < 1000, "the failure took a lookup's time");
+        // Chrome resolves a localhost subdomain to the loopback address itself, with no lookup,
+        // so this page loads without the rules on any machine, networked or not.
+        await assert.rejects(tab.goto(`http://page.localhost:${port}/`), /ERR_NAME_NOT_RESOLVED/);
+      } finally {
+        await tab.close();
+      }
+    } finally {
+      await browser.close();
+      server.close();
     }
   });
 });
