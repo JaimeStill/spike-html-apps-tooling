@@ -7,4 +7,9 @@ spike-html-apps.
 
 - [`context/README.md`](context/README.md): the working context.
 - [`STANDARDS.md`](STANDARDS.md): the judgement calls the standards-reviewer applies.
-- `mise run check`: the check.
+- **Check:** `mise run check`, after `mise run install`: ESLint, Prettier, shellcheck, actionlint,
+  tsc over the plain JavaScript (`checkJs`, no emit), the unit tier, which packs the repository and
+  checks the pack's shape, and the browser tier in the pinned chrome-headless-shell. It reads no
+  network.
+- **Currency:** `mise run currency`: every mise tool, package.json pin, and action pin behind its
+  latest; silent when all are current.

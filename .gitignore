@@ -1,0 +1,12 @@
+# Adapted from spike-html-apps-foundation (9c15b8d): .gitignore, with no build to ignore.
+
+# marathon working files.
+.claude/plans/
+.claude/briefs/
+
+# Per-machine mise overrides.
+mise.local.toml
+
+node_modules
+# A pack (pnpm pack).
+*.tgz
