@@ -7,26 +7,22 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import { SETTLED, launch, until } from "@jaimestill/spike-html-apps-tooling/browser.js";
+import type { Browser, Page } from "@jaimestill/spike-html-apps-tooling/browser.js";
 
-/** @import { Browser, Page } from "@jaimestill/spike-html-apps-tooling/browser.js" */
+/** The HTML as a data: URL a page loads. */
+const page = (html: string): string => `data:text/html,${encodeURIComponent(html)}`;
 
-/**
- * The HTML as a data: URL a page loads.
- * @param {string} html
- */
-const page = (html) => `data:text/html,${encodeURIComponent(html)}`;
-
-/**
- * Runs `body` with the environment variable set to `value`, or unset when it is undefined.
- * @param {string} name
- * @param {string | undefined} value
- * @param {() => Promise<void>} body
- */
-async function withEnv(name, value, body) {
+/** Runs `body` with the environment variable set to `value`, or unset when it is undefined. */
+async function withEnv(
+  name: string,
+  value: string | undefined,
+  body: () => Promise<void>,
+): Promise<void> {
   const saved = process.env[name];
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
@@ -94,7 +90,7 @@ describe("launch", () => {
           process.kill(pid, 0);
           return false;
         } catch (error) {
-          return /** @type {NodeJS.ErrnoException} */ (error).code === "ESRCH";
+          return (error as NodeJS.ErrnoException).code === "ESRCH";
         }
       };
       const deadline = performance.now() + 5000;
@@ -114,7 +110,8 @@ describe("launch", () => {
     );
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
-    const { port } = /** @type {import("node:net").AddressInfo} */ (server.address());
+    // A server listening on a TCP port has an address, never a pipe's name.
+    const { port } = server.address() as AddressInfo;
     const browser = await launch();
     try {
       const tab = await browser.open(`http://localhost:${port}/`);
@@ -139,8 +136,7 @@ describe("launch", () => {
 });
 
 describe("a page", () => {
-  /** @type {Browser} */
-  let browser;
+  let browser: Browser;
   before(async () => {
     browser = await launch();
   });
@@ -169,7 +165,7 @@ describe("a page", () => {
     assert.equal(await tab.evaluate("Promise.resolve(6 * 7)"), 42);
     await assert.rejects(tab.evaluate("missing.name"), /ReferenceError: missing is not defined/);
 
-    const { result } = await tab.cdp("Runtime.evaluate", {
+    const { result }: { result: { value: unknown } } = await tab.cdp("Runtime.evaluate", {
       expression: "document.title.length",
       returnByValue: true,
     });
@@ -177,7 +173,9 @@ describe("a page", () => {
 
     await tab.cdp("Runtime.enable");
     const logged = new Promise((resolve) =>
-      tab.on("Runtime.consoleAPICalled", ({ args }) => resolve(args[0].value)),
+      tab.on("Runtime.consoleAPICalled", ({ args }: { args: { value: unknown }[] }) =>
+        resolve(args[0].value),
+      ),
     );
     await tab.evaluate("console.log('heard')");
     assert.equal(await logged, "heard");
@@ -185,10 +183,11 @@ describe("a page", () => {
     // Target.closeTarget answers before the page is gone, so another page watches it leave.
     const other = await browser.open(page("<title>other</title>"));
     try {
-      const titles = async () =>
-        (await other.cdp("Target.getTargets")).targetInfos
-          .filter((/** @type {{ type: string }} */ target) => target.type === "page")
-          .map((/** @type {{ title: string }} */ target) => target.title);
+      const titles = async (): Promise<string[]> => {
+        const { targetInfos }: { targetInfos: { type: string; title: string }[] } =
+          await other.cdp("Target.getTargets");
+        return targetInfos.filter(({ type }) => type === "page").map(({ title }) => title);
+      };
       assert.ok((await titles()).includes("second"));
       await tab.close();
       const deadline = performance.now() + 5000;
@@ -207,7 +206,6 @@ describe("a page", () => {
     );
     const gutter =
       "(() => { const el = document.getElementById('region'); return el.offsetWidth - el.clientWidth; })()";
-    /** @type {Page} */
     const tab = await browser.open(region);
     try {
       assert.ok((await tab.evaluate(gutter)) > 0, "the scrollbar takes no width");
@@ -222,10 +220,8 @@ describe("a page", () => {
 });
 
 describe("until", () => {
-  /** @type {Browser} */
-  let browser;
-  /** @type {Page} */
-  let tab;
+  let browser: Browser;
+  let tab: Page;
   before(async () => {
     browser = await launch();
     tab = await browser.open(page("<p>until</p>"));
@@ -273,7 +269,8 @@ describe("SETTLED", () => {
           });
         </script>`),
       );
-      const reading = await tab.evaluate(`(${SETTLED}).then(() => ({
+      const reading: { ready: boolean; frames: number } =
+        await tab.evaluate(`(${SETTLED}).then(() => ({
         ready: window.paintedAtReady !== undefined,
         frames: window.painted - window.paintedAtReady,
       }))`);

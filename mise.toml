@@ -1,5 +1,4 @@
-# Adapted from spike-html-apps-foundation (9c15b8d): mise.toml, with no demo or screenshots task,
-# and the plain JavaScript type-checked beside the sources.
+# Adapted from spike-html-apps-foundation (7e5d6c2): mise.toml, with no demo or screenshots task.
 # Tasks never install a missing tool; mise run install is the one task that reads the network.
 [settings]
 task.run_auto_install = false
@@ -51,18 +50,18 @@ description = "Lint the GitHub Actions workflows with actionlint"
 run = "actionlint"
 
 [tasks.types]
-description = "Type-check the sources, and the tests and scripts against the build, with tsc"
-depends = ["types:src", "types:js"]
+description = "Type-check the sources and the suite with tsc"
+depends = ["types:src", "types:test"]
 
 [tasks."types:src"]
 description = "Type-check the sources with tsc"
 run = "tsc --noEmit -p ."
 
 # A test imports the package by its name, which resolves to the build's declarations.
-[tasks."types:js"]
-description = "Type-check the tests, scripts, and lint config with tsc, against dist/"
+[tasks."types:test"]
+description = "Type-check the suite and the lint config with tsc, under tsconfig.test.json"
 depends = ["build"]
-run = "tsc -p tsconfig.js.json"
+run = "tsc -p tsconfig.test.json"
 
 [tasks.build]
 description = "Build src/ into dist/: tsc's emit, the bin made executable"
@@ -71,12 +70,12 @@ run = "scripts/build.sh"
 [tasks."test:unit"]
 description = "Run the unit tier on dist/, a pack of the build included"
 depends = ["preflight", "build"]
-run = "node --test 'test/unit/*.test.js'"
+run = "node --test 'test/unit/*.test.ts'"
 
 [tasks."test:browser"]
 description = "Run the browser tier on dist/ in the pinned chrome-headless-shell"
 depends = ["preflight browser", "build"]
-run = "BROWSER_EXECUTABLE=$(mise which chrome-headless-shell) node --test 'test/browser/*.test.js'"
+run = "BROWSER_EXECUTABLE=$(mise which chrome-headless-shell) node --test 'test/browser/*.test.ts'"
 
 [tasks.check]
 description = "Run every check; reads no network; writes dist/"

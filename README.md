@@ -14,8 +14,8 @@ tag's tree, so the tag installs with no build step, and its manifest has no scri
 by the tag, as a devDependency:
 
 ```
-pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.1.0
-npm install -D --allow-git=root github:JaimeStill/spike-html-apps-tooling#v0.1.0
+pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.2.0
+npm install -D --allow-git=root github:JaimeStill/spike-html-apps-tooling#v0.2.0
 ```
 
 npm 12 refuses git dependencies unless `--allow-git` allows them; `root` allows the ones the
@@ -37,7 +37,7 @@ SETTLED: string
 - `launch()` starts the browser that `BROWSER_EXECUTABLE` names, headless, with no sandbox, in
   en-US and UTC, and rejects when the variable is unset. The browser resolves only `127.0.0.1`
   and `localhost`. Its temporary profile is removed on `close()`, or when the process exits
-  without closing it.
+  without closing it, once the browser's processes are gone, waiting at most 2 s for them.
 - `Browser` has `open(url)`, which resolves to a `Page` once the page's load event fires, and
   `close()`. A `Page` is 1280×720 with its scrollbars shown, and has `goto(url)`,
   `cdp(method, params?)`, `on(method, listener)`, `evaluate(expression)`, and `close()`.
@@ -75,7 +75,7 @@ The bin `spike-html-apps-screenshots` captures a consumer's pages in the browser
 
 ```
 spike-html-apps-screenshots <description> [--all | --<facet> <name>...] [--page <name>]...
-  [--scheme light|dark] [--output terminal|directory|browser] [--dir <path>] [--keep]
+  [--scheme light|dark] [--output terminal|directory|browser] [--dir <path>] [--keep] [-h | --help]
 ```
 
 `<description>` is the path of a module whose default export is a `Description`, whose shape
@@ -92,10 +92,34 @@ types the export; the package's types import `node:http`, so a consumer that che
 export default { pages: [{ name: "tools", caption: "Tools", path: "demo/tools.html" }] };
 ```
 
+A description may be a `.ts` module, which Node runs by stripping its types, so it uses erasable
+syntax only: type annotations, `import type`, and `satisfies`, but no `enum`, `namespace`, or
+parameter properties. It must not live under `node_modules`, and the consumer type-checks it with
+its own `noEmit` project:
+
+```ts
+import type { Description } from "@jaimestill/spike-html-apps-tooling/screenshots.js";
+
+const description: Description = {
+  pages: [{ name: "tools", caption: "Tools", path: "demo/tools.html" }],
+};
+export default description;
+```
+
 With no flags, the bin captures every page in light and dark at each facet's default. A facet's
 flag sets that facet's profile, `--all` captures every profile the description lists, `--page`
 limits the run to the pages named, and `--scheme` limits it to one scheme. A usage error, an
 unknown page, or a profile a page hasn't registered exits 2 before any capture.
+
+`--help`, or `-h`, prints the usage, each flag's meaning, the schemes, the outputs, and the exit
+codes, and exits 0 before any server or browser starts, so it needs no `BROWSER_EXECUTABLE`. It
+wins over every other flag, which it ignores. After a description,
+`spike-html-apps-screenshots <description> --help` also lists the description's pages, each with
+its caption, and its facets, each with its flag, root attribute, default, and names: the default
+and each name the description's `all` profiles give the facet's flag, in the order first given. A
+run still checks a name it is given against each page's registered names. With no description,
+the help leaves out the pages and facets. No facet may take the flag `help`, as none may take the
+bin's other flags.
 
 Each capture opens the page in a new tab and sets the scheme and the profile's attributes on the
 root. It waits until every custom element is defined and has updated, runs the state's `open`

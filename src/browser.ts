@@ -9,7 +9,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
@@ -38,6 +38,48 @@ export interface Page {
 
 /** What every browser runs with, so a reading is the same on any machine. */
 const settings = { lang: "en-US", tz: "UTC", width: 1280, height: 720 };
+
+/** How long a browser's ending waits for its processes to be gone before removing its profile. */
+const ENDING = 2000;
+
+/**
+ * Whether any process of the group is alive. Linux's /proc tells a live process from a zombie,
+ * which is dead but counts toward the group until its parent reaps it, as the browser's own
+ * process is until the event loop runs again; elsewhere signal 0 tests the group, zombies included,
+ * so an exit there waits out ENDING.
+ */
+function alive(group: number): boolean {
+  if (existsSync("/proc/self/stat")) {
+    for (const entry of readdirSync("/proc")) {
+      if (!/^\d+$/.test(entry)) continue;
+      let stat: string;
+      try {
+        stat = readFileSync(`/proc/${entry}/stat`, "utf8");
+      } catch {
+        continue; // The process ended while the directory was read.
+      }
+      // After the command's closing parenthesis: the state, the parent's pid, the group.
+      const [state, , pgrp] = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      if (Number(pgrp) === group && state !== "Z" && state !== "X") return true;
+    }
+    return false;
+  }
+  try {
+    process.kill(-group, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Sends the group SIGKILL, when any of it is left. */
+function kill(group: number): void {
+  try {
+    process.kill(-group, "SIGKILL");
+  } catch {
+    // ESRCH: the group is gone already.
+  }
+}
 
 /**
  * Launches the browser BROWSER_EXECUTABLE names, resolving once the protocol answers; rejects
@@ -70,6 +112,10 @@ export async function launch(): Promise<Browser> {
       "about:blank",
     ],
     {
+      // Its own process group, which its renderers and services join, so its ending ends them
+      // all: one that outlives the browser writes the profile again after the removal. A parent
+      // killed by a signal still ends the group, whose browser exits as its pipe closes.
+      detached: true,
       stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
       env: { ...process.env, TZ: settings.tz, TMPDIR: profile },
     },
@@ -133,11 +179,20 @@ export async function launch(): Promise<Browser> {
     listeners.set(`${sessionId}:${method}`, listener);
   };
 
-  // A run that ends without closing the browser still ends it and removes its profile, synchronously,
-  // as an exit listener must. SIGKILL, since a browser shutting down on SIGTERM writes its profile
-  // again after the removal.
+  // The group is the browser's pid; a spawn that failed has none, and nothing to end.
+  const group = child.pid;
+
+  // A run that ends without closing the browser still ends it and every process it started, and
+  // removes its profile once they are gone, synchronously, as an exit listener must: a process
+  // SIGKILL has not yet ended writes the profile again after the removal. SIGKILL, since a browser
+  // shutting down on SIGTERM writes its profile again too.
   const orphan = () => {
-    child.kill("SIGKILL");
+    if (group !== undefined) {
+      kill(group);
+      const pause = new Int32Array(new SharedArrayBuffer(4));
+      const deadline = performance.now() + ENDING;
+      while (alive(group) && performance.now() < deadline) Atomics.wait(pause, 0, 0, 10);
+    }
     try {
       rmSync(profile, { recursive: true, force: true });
     } catch {
@@ -154,6 +209,14 @@ export async function launch(): Promise<Browser> {
       const timer = setTimeout(() => child.kill(), 5000);
       await exited;
       clearTimeout(timer);
+    }
+    // The browser's processes outlive it briefly, and write its profile while they do.
+    if (group !== undefined) {
+      kill(group);
+      const deadline = performance.now() + ENDING;
+      while (alive(group) && performance.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
     }
     rmSync(profile, { recursive: true, force: true });
   };

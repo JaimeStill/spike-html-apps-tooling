@@ -5,17 +5,14 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { launch, until } from "@jaimestill/spike-html-apps-tooling/browser.js";
+import type { Browser } from "@jaimestill/spike-html-apps-tooling/browser.js";
 import { serve } from "@jaimestill/spike-html-apps-tooling/server.js";
-import { tree } from "../support/tree.js";
-
-/** @import { Browser } from "@jaimestill/spike-html-apps-tooling/browser.js" */
-/** @import { Server } from "@jaimestill/spike-html-apps-tooling/server.js" */
+import type { Server } from "@jaimestill/spike-html-apps-tooling/server.js";
+import { tree } from "../support/tree.ts";
 
 const fixture = tree();
-/** @type {Server} */
-let server;
-/** @type {Browser} */
-let browser;
+let server: Server;
+let browser: Browser;
 before(async () => {
   server = await serve({ root: fixture.root, deps: ["alpha"] });
   browser = await launch();
@@ -32,7 +29,7 @@ test("a page's stylesheet applies and its module scripts run, a dep and its sibl
     assert.equal(await until(page, "window.app", 5000), "alpha beta gamma");
     assert.equal(await page.evaluate("getComputedStyle(document.body).marginTop"), "7px");
     // The browser saw the server's types, not ones it sniffed.
-    const types = await page.evaluate(
+    const types: Record<string, string> = await page.evaluate(
       `Object.fromEntries(performance.getEntriesByType("resource").map((entry) => [new URL(entry.name).pathname, entry.contentType]))`,
     );
     assert.deepEqual(types, {

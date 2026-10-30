@@ -6,25 +6,16 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-/**
- * Writes each file under `dir`, by its path, making its directories.
- * @param {string} dir
- * @param {Record<string, string>} files
- */
-function write(dir, files) {
+/** Writes each file under `dir`, by its path, making its directories. */
+function write(dir: string, files: Record<string, string>): void {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);
   }
 }
 
-/**
- * Links `path` under `dir` to `target`, relative as pnpm writes its links.
- * @param {string} dir
- * @param {string} path
- * @param {string} target
- */
-function link(dir, path, target) {
+/** Links `path` under `dir` to `target`, relative as pnpm writes its links. */
+function link(dir: string, path: string, target: string): void {
   mkdirSync(dirname(join(dir, path)), { recursive: true });
   symlinkSync(target, join(dir, path), "dir");
 }
@@ -33,7 +24,7 @@ function link(dir, path, target) {
  * Builds the tree in a new temporary directory, resolving to its root, the absolute path of the
  * file beside the root, and a remove().
  */
-export function tree() {
+export function tree(): { root: string; outside: string; remove: () => void } {
   const scratch = mkdtempSync(join(tmpdir(), "server-tree."));
   const root = join(scratch, "root");
   write(scratch, { "outside.html": "<title>outside</title>" });

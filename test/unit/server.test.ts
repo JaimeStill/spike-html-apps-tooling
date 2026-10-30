@@ -7,18 +7,23 @@ import assert from "node:assert/strict";
 import { request as send } from "node:http";
 import { after, before, describe, test } from "node:test";
 import { serve } from "@jaimestill/spike-html-apps-tooling/server.js";
-import { tree } from "../support/tree.js";
+import type { Server } from "@jaimestill/spike-html-apps-tooling/server.js";
+import { tree } from "../support/tree.ts";
 
-/** @import { Server } from "@jaimestill/spike-html-apps-tooling/server.js" */
+/** A response as get() reads it: its status, two of its headers, and its body. */
+interface Response {
+  status: number;
+  type?: string;
+  cache?: string;
+  body: string;
+}
 
-/**
- * The response to a request for the path, written as it is, with no client normalizing it.
- * @param {string} origin
- * @param {string} path
- * @param {{ method?: string, body?: string }} [options]
- * @returns {Promise<{ status: number, type?: string, cache?: string, body: string }>}
- */
-function get(origin, path, { method = "GET", body } = {}) {
+/** The response to a request for the path, written as it is, with no client normalizing it. */
+function get(
+  origin: string,
+  path: string,
+  { method = "GET", body }: { method?: string; body?: string } = {},
+): Promise<Response> {
   const { hostname, port } = new URL(origin);
   return new Promise((resolve, reject) => {
     const outgoing = send({ hostname, port, path, method, agent: false }, (response) => {
@@ -27,7 +32,8 @@ function get(origin, path, { method = "GET", body } = {}) {
       response.on("data", (chunk) => (text += chunk));
       response.on("end", () =>
         resolve({
-          status: /** @type {number} */ (response.statusCode),
+          // A response the client hands its callback always carries its status.
+          status: response.statusCode as number,
           type: response.headers["content-type"],
           cache: response.headers["cache-control"],
           body: text,
@@ -44,8 +50,7 @@ const fixture = tree();
 after(fixture.remove);
 
 describe("the root", () => {
-  /** @type {Server} */
-  let server;
+  let server: Server;
   before(async () => {
     server = await serve({ root: fixture.root });
   });
@@ -112,8 +117,7 @@ describe("the root", () => {
 });
 
 describe("deps", () => {
-  /** @type {Server} */
-  let server;
+  let server: Server;
   before(async () => {
     server = await serve({ root: fixture.root, deps: ["alpha", "flat"] });
   });
@@ -188,8 +192,7 @@ describe("deps", () => {
 });
 
 describe("shell", () => {
-  /** @type {Server} */
-  let server;
+  let server: Server;
   before(async () => {
     server = await serve({ root: fixture.root, shell: "/shell.html" });
   });
@@ -236,8 +239,7 @@ describe("handler", () => {
   });
 
   test("a passing handler sees every request, and the root answers it", async () => {
-    /** @type {string[]} */
-    const requests = [];
+    const requests: string[] = [];
     const server = await serve({
       root: fixture.root,
       shell: "/shell.html",

@@ -1,0 +1,17 @@
+// The type check of the suite, mise run types:test: the tests and their helpers, which node runs
+// under its type stripping, checked against dist/ as a consumer's code is. checkJs types the two
+// files that stay JavaScript, the fixture stub, run from a PATH, and the lint's config.
+// Adapted from spike-html-apps-foundation (7e5d6c2): tsconfig.test.json, with checkJs.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "rootDir": "."
+  },
+  "include": ["test/**/*.ts", "test/browser/fixtures/screenshots/stub.js", "eslint.config.js"]
+}
