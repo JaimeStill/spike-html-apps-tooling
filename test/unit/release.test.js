@@ -1,12 +1,19 @@
-// The release's integrity: a pnpm pack of the repository, extracted, against the sources, the
-// manifest's install fields, and its license, by release.js's releaseProblems, as it stands and in
-// scratch copies with one fault each.
-// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.test.js, with no build and
-// no budget.
+// The release's integrity: a pnpm pack of the build, extracted, against the sources, the
+// manifest's install fields and bin, and its license, by release.js's releaseProblems, as it stands
+// and in scratch copies with one fault each. It packs the dist/ that mise run build writes.
+// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.test.js, with no budget.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -55,9 +62,10 @@ function faulted(change) {
 const remove = (path) => (/** @type {string} */ dir) => rmSync(join(dir, path));
 
 describe("release pack", () => {
-  test("the pack is package.json, README.md, LICENSE, and the sources", () => {
-    const sources = listFiles(src).map((path) => `src/${path}`);
-    assert.deepEqual(listFiles(pack), [...sources, ...always].sort());
+  test("the pack is package.json, README.md, LICENSE, and the build", () => {
+    const built = listFiles(join(root, "dist")).map((path) => `dist/${path}`);
+    assert.ok(built.length > 0, "mise run build wrote no dist/");
+    assert.deepEqual(listFiles(pack), [...built, ...always].sort());
   });
 
   test("the pack is the release its manifest declares", () => {
@@ -80,14 +88,38 @@ describe("release pack", () => {
     ],
     "a stray file in the pack": [
       (dir) => writeFileSync(join(dir, "notes.md"), ""),
-      "notes.md is packed but isn't a source, LICENSE, README.md, package.json",
+      "notes.md is packed but isn't the build, LICENSE, README.md, package.json",
     ],
-    "a built file in the pack": [
+    "a source in the pack": [
       (dir) => {
-        mkdirSync(join(dir, "dist"));
-        writeFileSync(join(dir, "dist/index.js"), "");
+        mkdirSync(join(dir, "src"));
+        writeFileSync(join(dir, "src/server.ts"), "");
       },
-      "dist/index.js is packed but isn't a source, LICENSE, README.md, package.json",
+      "src/server.ts is packed but isn't the build, LICENSE, README.md, package.json",
+    ],
+    "a stray built file": [
+      (dir) => writeFileSync(join(dir, "dist/old.js"), ""),
+      "dist/old.js is built from no source",
+    ],
+    "a .ts module with no emitted .js": [
+      remove("dist/server.js"),
+      "src/server.ts has no built dist/server.js",
+    ],
+    "a .ts module with no emitted .d.ts": [
+      remove("dist/screenshots.d.ts"),
+      "src/screenshots.ts has no built dist/screenshots.d.ts",
+    ],
+    "a bin that isn't executable": [
+      (dir) => chmodSync(join(dir, "dist/bin/screenshots.js"), 0o644),
+      "bin spike-html-apps-screenshots isn't executable",
+    ],
+    "a bin without its shebang": [
+      (dir) => writeFileSync(join(dir, "dist/bin/screenshots.js"), "", { mode: 0o755 }),
+      "bin spike-html-apps-screenshots has no node shebang",
+    ],
+    "a bin at a file the pack lacks": [
+      (_, manifest) => (manifest.bin = { "spike-html-apps-screenshots": "./dist/bin/gone.js" }),
+      "bin spike-html-apps-screenshots is ./dist/bin/gone.js, which isn't packed",
     ],
     "a pack without its README": [remove("README.md"), "the pack has no README.md"],
     "a pack without its LICENSE": [remove("LICENSE"), "LICENSE is missing"],
@@ -107,10 +139,12 @@ describe("release pack", () => {
     });
   }
 
-  test("fails on a source the pack leaves out", () => {
+  test("fails on a source the build leaves out", () => {
     const sources = join(scratchDir(), "src");
     mkdirSync(sources);
-    writeFileSync(join(sources, "left-out.js"), "");
-    assert.ok(releaseProblems(pack, sources).includes("src/left-out.js isn't packed"));
+    writeFileSync(join(sources, "left-out.ts"), "");
+    assert.ok(
+      releaseProblems(pack, sources).includes("src/left-out.ts has no built dist/left-out.js"),
+    );
   });
 });

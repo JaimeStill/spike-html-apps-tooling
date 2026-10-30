@@ -1,9 +1,8 @@
 # Cuts the release package.json's version names, once: on a push to main whose version has no tag
-# yet, a green check, then the pack's tree committed beside the pushed commit, on no branch, and
-# tagged, with a GitHub release from CHANGELOG.md and the tarball attached. A push whose version is
-# already tagged changes nothing.
-# Adapted from spike-html-apps-foundation (9c15b8d): .github/workflows/release.yml, renamed. The pack
-# is the sources as written, so no build runs before it.
+# yet, a green check, which builds dist/, then the pack's tree committed beside the pushed commit,
+# on no branch, and tagged, with a GitHub release from CHANGELOG.md and the tarball attached. A push
+# whose version is already tagged changes nothing.
+# Adapted from spike-html-apps-foundation (9c15b8d): .github/workflows/release.yml, renamed.
 name: Release
 
 on:
@@ -61,9 +60,9 @@ jobs:
           tarball=$(ls "$scratch"/*.tgz)
           tar -xzf "$tarball" -C "$scratch"
           # The pack's package/ as a tree: it is the work tree, through an index of its own, so the
-          # checkout's index and .gitignore play no part, and --force keeps an ignore rule outside
-          # it, such as .git/info/exclude, from dropping a file. The commit's one parent is the
-          # pushed one.
+          # checkout's index and .gitignore (which ignores dist/) play no part, and --force keeps
+          # an ignore rule outside it, such as .git/info/exclude, from dropping a file. The
+          # commit's one parent is the pushed one.
           export GIT_INDEX_FILE="$scratch/index"
           git --work-tree="$scratch/package" add --all --force .
           tree=$(git write-tree)

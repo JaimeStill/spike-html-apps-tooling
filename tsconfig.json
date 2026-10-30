@@ -1,6 +1,6 @@
-// The type check, with no emit: the sources are the plain .js that ships, each typed by its JSDoc,
-// so the tag's tree installs with no build. The tests and scripts are checked beside them.
-// Adapted from spike-html-apps-foundation (9c15b8d): tsconfig.json, checking JavaScript on node.
+// The build, src/ into dist/: tsc emits each module's .js and .d.ts, rewriting the sources' .ts
+// specifiers to .js. mise run types checks the same sources with --noEmit.
+// Adapted from spike-html-apps-foundation (9c15b8d): tsconfig.json, on node.
 {
   "compilerOptions": {
     "target": "es2024",
@@ -8,11 +8,15 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "types": ["node"],
-    "allowJs": true,
-    "checkJs": true,
-    "noEmit": true,
     "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
     "skipLibCheck": false
   },
-  "include": ["src", "test", "scripts", "eslint.config.js"]
+  "include": ["src"]
 }

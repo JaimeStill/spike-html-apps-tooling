@@ -1,4 +1,4 @@
-# Adapted from spike-html-apps-foundation (9c15b8d): .gitignore, with no build to ignore.
+# From spike-html-apps-foundation (9c15b8d): .gitignore.
 
 # marathon working files.
 .claude/plans/
@@ -8,5 +8,7 @@
 mise.local.toml
 
 node_modules
-# A pack (pnpm pack).
+# The build (mise run build, and the check's): only a release tag's tree carries it.
+dist/
+# A pack of the build (pnpm pack).
 *.tgz

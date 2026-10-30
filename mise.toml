@@ -1,5 +1,5 @@
-# Adapted from spike-html-apps-foundation (9c15b8d): mise.toml, with no build, demo, or
-# screenshots task.
+# Adapted from spike-html-apps-foundation (9c15b8d): mise.toml, with no demo or screenshots task,
+# and the plain JavaScript type-checked beside the sources.
 # Tasks never install a missing tool; mise run install is the one task that reads the network.
 [settings]
 task.run_auto_install = false
@@ -50,25 +50,37 @@ run = "shellcheck scripts/*.sh"
 description = "Lint the GitHub Actions workflows with actionlint"
 run = "actionlint"
 
-# The sources are the plain .js that ships, so tsc only checks them: no build stands between the
-# tag's tree and an install.
 [tasks.types]
-description = "Type-check the sources, tests, and scripts with tsc"
-run = "tsc -p ."
+description = "Type-check the sources, and the tests and scripts against the build, with tsc"
+depends = ["types:src", "types:js"]
+
+[tasks."types:src"]
+description = "Type-check the sources with tsc"
+run = "tsc --noEmit -p ."
+
+# A test imports the package by its name, which resolves to the build's declarations.
+[tasks."types:js"]
+description = "Type-check the tests, scripts, and lint config with tsc, against dist/"
+depends = ["build"]
+run = "tsc -p tsconfig.js.json"
+
+[tasks.build]
+description = "Build src/ into dist/: tsc's emit, the bin made executable"
+run = "scripts/build.sh"
 
 [tasks."test:unit"]
-description = "Run the unit tier, a pack of the sources included"
-depends = ["preflight"]
+description = "Run the unit tier on dist/, a pack of the build included"
+depends = ["preflight", "build"]
 run = "node --test 'test/unit/*.test.js'"
 
 [tasks."test:browser"]
-description = "Run the browser tier in the pinned chrome-headless-shell"
-depends = ["preflight browser"]
+description = "Run the browser tier on dist/ in the pinned chrome-headless-shell"
+depends = ["preflight browser", "build"]
 run = "BROWSER_EXECUTABLE=$(mise which chrome-headless-shell) node --test 'test/browser/*.test.js'"
 
 [tasks.check]
-description = "Run every check; reads no network"
-depends = ["lint", "types", "test:unit", "test:browser"]
+description = "Run every check; reads no network; writes dist/"
+depends = ["lint", "types", "build", "test:unit", "test:browser"]
 
 [tasks.install]
 description = "Install the pins and node_modules; reads the network"

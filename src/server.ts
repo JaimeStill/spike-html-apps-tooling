@@ -1,28 +1,66 @@
 // The static server a browser test loads its pages from: a root directory over plain http on the
 // loopback address, each file as it is on disk; under /deps/ the installed packages an import map
 // names; the shell page for any extensionless path, an app's deep links; and a handler offered
-// every request first, for a consumer's own routes. server.d.ts carries the types a consumer reads.
+// every request first, for a consumer's own routes.
 // Adapted from spike-html-apps-components (2fded6d) and spike-html-apps-sdk (ca3089e):
-// test/browser/support/server.js, its deps named by the consumer and its routes a handler's.
-
-/** @import { Server, ServeOptions } from "./server.js" */
+// test/browser/support/server.js, in TypeScript, its deps named by the consumer and its routes a
+// handler's.
 
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { basename, dirname, extname, join, normalize, resolve } from "node:path";
 
-/** @type {Record<string, string>} The content type of each extension served; any other is a 404. */
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+/**
+ * Offered every request before the server's own routes. It returns true, or a promise of true,
+ * when it claims the request, and then owns the response: it answers, destroys the socket, or
+ * never answers, and the server does nothing more with the request. Anything else passes the
+ * request on, so a handler that passes it on must leave the request's body and the response
+ * untouched. A handler that throws, or whose promise rejects, has the response destroyed.
+ */
+export type Handler = (
+  request: IncomingMessage,
+  response: ServerResponse,
+) => boolean | Promise<boolean>;
+
+/** What serve serves. */
+export interface ServeOptions {
+  /** The directory whose .html, .js, and .css files are served, each at its path under it. */
+  root: string;
+  /**
+   * The packages served under /deps/<name>/, each by its name, found as node finds an import: in
+   * the node_modules of the root or of the nearest directory above it that holds the package.
+   * A package pnpm installed from its store brings its store siblings, its own dependencies,
+   * under /deps/ by their names too.
+   */
+  deps?: string[];
+  /** The path under the root of the page sent for any request whose path has no extension. */
+  shell?: string;
+  /** Offered every request first, to claim or pass on. */
+  handler?: Handler;
+}
+
+/** A server serve started, until it is stopped. */
+export interface Server {
+  /** The server's origin, http://127.0.0.1:<port>. */
+  origin: string;
+  /** Closes the port and every connection still open, resolving once the server is closed. */
+  stop(): Promise<void>;
+}
+
+/** The content type of each extension served; any other is a 404. */
+const types: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "text/javascript",
+  ".css": "text/css",
+};
 
 /**
  * The package's installed directory, found as node finds an import: in the node_modules of `from`
  * or of the nearest directory above it that holds the package.
- * @param {string} name
- * @param {string} from
- * @returns {string}
  */
-function installed(name, from) {
+function installed(name: string, from: string): string {
   for (let dir = resolve(from); ; dir = dirname(dir)) {
     const candidate = join(dir, "node_modules", name);
     if (existsSync(candidate)) return candidate;
@@ -37,19 +75,15 @@ function installed(name, from) {
  * The packages beside the package in its pnpm store directory, by name: its own dependencies,
  * which pnpm links there rather than into the root's node_modules. A package outside a store has
  * none, so a flat node_modules, or a package linked from elsewhere on disk, lends it no others.
- * @param {string} name
- * @param {string} dir
- * @returns {[string, string][]}
  */
-function siblings(name, dir) {
+function siblings(name: string, dir: string): [string, string][] {
   // pnpm installs a package at .pnpm/<id>/node_modules/<name>, its dependencies linked beside it.
   let modules = realpathSync(dir);
   for (let depth = name.split("/").length; depth > 0; depth--) modules = dirname(modules);
   if (basename(modules) !== "node_modules" || basename(dirname(dirname(modules))) !== ".pnpm") {
     return [];
   }
-  /** @type {[string, string][]} */
-  const found = [];
+  const found: [string, string][] = [];
   for (const entry of readdirSync(modules)) {
     if (entry.startsWith(".")) continue;
     if (!entry.startsWith("@")) found.push([entry, join(modules, entry)]);
@@ -66,12 +100,9 @@ function siblings(name, dir) {
 /**
  * The directory of each package served under /deps/, by name: each named package's, then its
  * store siblings', a named package's own directory taking precedence.
- * @param {string[]} names
- * @param {string} root
- * @returns {Map<string, string>}
  */
-function packages(names, root) {
-  const named = names.map((name) => /** @type {const} */ ([name, installed(name, root)]));
+function packages(names: string[], root: string): Map<string, string> {
+  const named = names.map((name) => [name, installed(name, root)] as const);
   const found = new Map(named);
   for (const [name, dir] of named) {
     for (const [sibling, path] of siblings(name, dir)) {
@@ -82,20 +113,18 @@ function packages(names, root) {
 }
 
 /**
- * Serves the options' root on a free loopback port, resolving to its origin and a stop().
- * @param {ServeOptions} options
- * @returns {Promise<Server>}
+ * Serves the options' root on a free loopback port, resolving to its origin and a stop(); rejects
+ * naming a dep it finds in no node_modules.
  */
-export async function serve({ root, deps = [], shell, handler }) {
+export async function serve({ root, deps = [], shell, handler }: ServeOptions): Promise<Server> {
   const served = packages(deps, root);
 
   /**
    * The file a request's path names: under /deps/ one of the packages', otherwise the root's,
-   * and the shell's for a path with no extension; undefined when it names none.
-   * @param {string} pathname The request's path, still percent-encoded.
-   * @returns {string | undefined}
+   * and the shell's for a path with no extension; undefined when it names none. The pathname is
+   * the request's path, still percent-encoded.
    */
-  const file = (pathname) => {
+  const file = (pathname: string): string | undefined => {
     // normalize() of an absolute path never climbs above its root, so no request leaves the root,
     // and none under /deps/ leaves its package. An encoded ..'s %2e%2e and %2f are decoded first,
     // so it climbs no further than a plain one.
@@ -113,14 +142,10 @@ export async function serve({ root, deps = [], shell, handler }) {
     return dir && join(dir, ...segments.slice(length));
   };
 
-  /**
-   * Answers the request: the handler's when it claims it, otherwise the file its path names.
-   * @param {import("node:http").IncomingMessage} request
-   * @param {import("node:http").ServerResponse} response
-   */
-  const respond = async (request, response) => {
+  /** Answers the request: the handler's when it claims it, otherwise the file its path names. */
+  const respond = async (request: IncomingMessage, response: ServerResponse) => {
     if (handler && (await handler(request, response)) === true) return;
-    const path = file(/** @type {string} */ (request.url).split(/[?#]/)[0]);
+    const path = file((request.url as string).split(/[?#]/)[0]);
     const type = path && types[extname(path)];
     const body = type && (await readFile(path).catch(() => undefined));
     if (!body) {
@@ -138,11 +163,11 @@ export async function serve({ root, deps = [], shell, handler }) {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => resolve(undefined));
   });
-  const { port } = /** @type {import("node:net").AddressInfo} */ (server.address());
+  const { port } = server.address() as AddressInfo;
   return {
     origin: `http://127.0.0.1:${port}`,
     stop: () =>
-      new Promise((resolve, reject) => {
+      new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
         // A connection held open, by keep-alive or a request never answered, would hold close().
         server.closeAllConnections();

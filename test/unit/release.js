@@ -1,8 +1,9 @@
-// A release's shape: a pack of the sources as written, which a tag's tree installs with no build
-// step, its manifest carrying no scripts and no runtime dependency, and the Apache 2.0 LICENSE it
-// declares. test/unit/release.test.js runs it on a pnpm pack.
-// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.js, the pack held to the
-// sources, not a build, and its manifest to no scripts and no dependencies.
+// A release's shape: a pack of the build checked against the sources, which a tag's tree installs
+// with no build step, its manifest carrying no scripts and no runtime dependency, its bin
+// executable, and the Apache 2.0 LICENSE it declares. test/unit/release.test.js runs it on a pnpm
+// pack.
+// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.js, with no export
+// resolution, its manifest held to no scripts and no dependencies, and its bin to executable.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
@@ -18,6 +19,17 @@ export function listFiles(dir) {
     .filter((path) => statSync(join(dir, path)).isFile())
     .map((path) => path.split(sep).join("/"))
     .sort();
+}
+
+/**
+ * The dist/ paths a source in src/ ships as: a .ts module's emitted .js and .d.ts.
+ * @param {string} source
+ * @returns {string[]}
+ */
+export function builtFrom(source) {
+  if (!source.endsWith(".ts") || source.endsWith(".d.ts")) return [];
+  const base = source.slice(0, -".ts".length);
+  return [`dist/${base}.js`, `dist/${base}.d.ts`];
 }
 
 /** The files every pack carries whatever package.json's files lists. */
@@ -63,16 +75,42 @@ export function releaseProblems(root, src) {
     if (field in manifest) problems.push(`package.json has a ${field} field`);
   }
 
-  // The pack is the sources as written and the files every pack carries, and nothing else.
+  // The pack is the build and the files every pack carries, and nothing else.
   const packed = listFiles(root);
   if (!packed.includes("README.md")) problems.push("the pack has no README.md");
-  const sources = listFiles(src).map((path) => `src/${path}`);
-  for (const path of sources) {
-    if (!packed.includes(path)) problems.push(`${path} isn't packed`);
-  }
   for (const path of packed) {
-    if (!sources.includes(path) && !always.includes(path)) {
-      problems.push(`${path} is packed but isn't a source, ${always.join(", ")}`);
+    if (!path.startsWith("dist/") && !always.includes(path)) {
+      problems.push(`${path} is packed but isn't the build, ${always.join(", ")}`);
+    }
+  }
+
+  // The build against the sources: each source's emit is there, and nothing else is.
+  const built = packed.filter((path) => path.startsWith("dist/"));
+  /** @type {Set<string>} */
+  const expected = new Set();
+  for (const source of listFiles(src)) {
+    const outputs = builtFrom(source);
+    if (outputs.length === 0) problems.push(`src/${source} isn't a .ts source`);
+    for (const output of outputs) {
+      expected.add(output);
+      if (!built.includes(output)) problems.push(`src/${source} has no built ${output}`);
+    }
+  }
+  for (const path of built) {
+    if (!expected.has(path)) problems.push(`${path} is built from no source`);
+  }
+
+  // Each bin is a built file with its shebang, executable, so the tag's tree runs it as it is.
+  /** @type {Record<string, string>} */
+  const bins = manifest.bin ?? {};
+  for (const [name, target] of Object.entries(bins)) {
+    const path = join(root, target);
+    if (!existsSync(path)) problems.push(`bin ${name} is ${target}, which isn't packed`);
+    else {
+      if (!readFileSync(path, "utf8").startsWith("#!/usr/bin/env node\n")) {
+        problems.push(`bin ${name} has no node shebang`);
+      }
+      if ((statSync(path).mode & 0o111) === 0) problems.push(`bin ${name} isn't executable`);
     }
   }
   return problems;

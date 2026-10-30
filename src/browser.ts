@@ -1,25 +1,49 @@
 // The browser driver: the browser BROWSER_EXECUTABLE names, over the DevTools Protocol on a pipe,
-// with no package between, its pages, and the waits a test makes on a page. browser.d.ts beside it
-// carries the types a consumer reads.
-// Adapted from spike-html-apps-components (2fded6d): test/browser/support/browser-pipe.js, typed,
-// with until from spike-html-apps (a6ff18d): test/browser/support/app.js, rejecting on a thrown
-// expression, and SETTLED from spike-html-apps-components (2fded6d): scripts/screenshots.js.
+// with no package between, its pages, and the waits a test makes on a page.
+// Adapted from spike-html-apps-components (2fded6d): test/browser/support/browser-pipe.js, in
+// TypeScript, with until from spike-html-apps (a6ff18d): test/browser/support/app.js, rejecting on
+// a thrown expression, and SETTLED from spike-html-apps-components (2fded6d): scripts/screenshots.js.
 
-/** @import { Browser, Page } from "./browser.js" */
+// The protocol's results and a page's values are JSON whose shape only the caller knows, so they
+// are any, as JSON.parse's are, for the caller to destructure or annotate.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Readable, Writable } from "node:stream";
+
+/** A browser launch started, until it is closed. */
+export interface Browser {
+  /** Opens the URL in a new page, resolving to the page once its load event fires. */
+  open(url: string): Promise<Page>;
+  /** Ends the browser, by Browser.close or after 5 s by a signal, and removes its profile. */
+  close(): Promise<void>;
+}
+
+/** A page of a browser: 1280×720, en-US, UTC, its scrollbars shown. */
+export interface Page {
+  /** Loads the URL, resolving once its load event fires. */
+  goto(url: string): Promise<void>;
+  /** Sends the page one protocol command, resolving to its result. */
+  cdp(method: string, params?: Record<string, unknown>): Promise<any>;
+  /** Calls the listener with each of the page's events of the method, replacing any before it. */
+  on(method: string, listener: (params: any) => void): void;
+  /** The expression's value, awaited when it is a promise, as JSON. */
+  evaluate(expression: string): Promise<any>;
+  /** Closes the page. */
+  close(): Promise<void>;
+}
 
 /** What every browser runs with, so a reading is the same on any machine. */
 const settings = { lang: "en-US", tz: "UTC", width: 1280, height: 720 };
 
 /**
- * Launches the browser BROWSER_EXECUTABLE names, resolving once the protocol answers.
- * @returns {Promise<Browser>}
+ * Launches the browser BROWSER_EXECUTABLE names, resolving once the protocol answers; rejects
+ * when BROWSER_EXECUTABLE is unset.
  */
-export async function launch() {
+export async function launch(): Promise<Browser> {
   const executable = process.env.BROWSER_EXECUTABLE;
   if (!executable) {
     throw new Error(
@@ -52,18 +76,19 @@ export async function launch() {
   );
   // Chromium reads commands on its fd 3 and writes replies and events on its fd 4, each message one
   // JSON object ended by a NUL.
-  const errors = /** @type {import("node:stream").Readable} */ (child.stdio[2]);
-  const commands = /** @type {import("node:stream").Writable} */ (child.stdio[3]);
-  const replies = /** @type {import("node:stream").Readable} */ (child.stdio[4]);
+  const errors = child.stdio[2] as Readable;
+  const commands = child.stdio[3] as Writable;
+  const replies = child.stdio[4] as Readable;
   let log = "";
   errors.setEncoding("utf8");
-  errors.on("data", (chunk) => (log = (log + chunk).slice(-2000)));
+  errors.on("data", (chunk: string) => (log = (log + chunk).slice(-2000)));
 
   let next = 0;
-  /** @type {Map<number, { resolve: (result: any) => void, reject: (error: Error) => void }>} */
-  const waiting = new Map();
-  /** @type {Map<string, (params: any) => void>} */
-  const listeners = new Map();
+  const waiting = new Map<
+    number,
+    { resolve: (result: any) => void; reject: (error: Error) => void }
+  >();
+  const listeners = new Map<string, (params: any) => void>();
   const exited = new Promise((resolve) => child.once("exit", resolve));
   let gone = false;
   const fail = () => {
@@ -78,7 +103,7 @@ export async function launch() {
 
   let buffer = "";
   replies.setEncoding("utf8");
-  replies.on("data", (chunk) => {
+  replies.on("data", (chunk: string) => {
     buffer += chunk;
     for (let end = buffer.indexOf("\0"); end >= 0; end = buffer.indexOf("\0")) {
       const message = JSON.parse(buffer.slice(0, end));
@@ -94,28 +119,17 @@ export async function launch() {
     }
   });
 
-  /**
-   * Sends one command, resolving to its result.
-   * @param {string} method
-   * @param {Record<string, unknown>} [params]
-   * @param {string} [sessionId]
-   * @returns {Promise<any>}
-   */
-  const send = (method, params = {}, sessionId) =>
-    new Promise((resolve, reject) => {
+  /** Sends one command, resolving to its result. */
+  const send = (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
+    new Promise<any>((resolve, reject) => {
       const id = ++next;
       waiting.set(id, { resolve, reject });
       if (gone) return fail();
       commands.write(`${JSON.stringify({ id, method, params, sessionId })}\0`);
     });
 
-  /**
-   * Calls the listener with each event of the method in the session, replacing any before it.
-   * @param {string} sessionId
-   * @param {string} method
-   * @param {(params: any) => void} listener
-   */
-  const on = (sessionId, method, listener) => {
+  /** Calls the listener with each event of the method in the session, replacing any before it. */
+  const on = (sessionId: string, method: string, listener: (params: any) => void) => {
     listeners.set(`${sessionId}:${method}`, listener);
   };
 
@@ -151,17 +165,12 @@ export async function launch() {
     throw error;
   }
 
-  /**
-   * Opens the URL in a new page, resolving to the page once its load event fires.
-   * @param {string} url
-   * @returns {Promise<Page>}
-   */
-  async function open(url) {
+  /** Opens the URL in a new page, resolving to the page once its load event fires. */
+  async function open(url: string): Promise<Page> {
     const { targetId } = await send("Target.createTarget", { url: "about:blank" });
     // flatten: the page's commands carry its session id on the one pipe.
     const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
-    /** @type {Page["cdp"]} */
-    const cdp = (method, params) => send(method, params, sessionId);
+    const cdp: Page["cdp"] = (method, params) => send(method, params, sessionId);
     await cdp("Page.enable");
     // A page Target.createTarget opens headless has no size until one is emulated.
     const { width, height } = settings;
@@ -178,8 +187,7 @@ export async function launch() {
     // region's measures and captures match what a user sees.
     await cdp("Emulation.setScrollbarsHidden", { hidden: false });
 
-    /** @type {Page["goto"]} */
-    const goto = async (url) => {
+    const goto: Page["goto"] = async (url) => {
       const loaded = new Promise((resolve) => on(sessionId, "Page.loadEventFired", resolve));
       const { errorText } = await cdp("Page.navigate", { url });
       if (errorText) throw new Error(`${url}: ${errorText}`);
@@ -213,14 +221,10 @@ export async function launch() {
 
 /**
  * Resolves once the expression is truthy in the page, to its value, polling inside the page every
- * 25 ms; rejects naming the expression and the timeout once the timeout passes, or with the error
- * the expression throws.
- * @param {Page} page
- * @param {string} expression
- * @param {number} [timeout]
- * @returns {Promise<any>}
+ * 25 ms; rejects naming the expression and the timeout, 10 s by default, once it passes, or with
+ * the error the expression throws.
  */
-export function until(page, expression, timeout = 10_000) {
+export function until(page: Page, expression: string, timeout = 10_000): Promise<any> {
   return page.evaluate(`new Promise((resolve, reject) => {
     const deadline = performance.now() + ${timeout};
     const poll = () => {
@@ -238,5 +242,5 @@ export function until(page, expression, timeout = 10_000) {
 }
 
 /** An expression that resolves once the page's fonts are ready and two frames have painted. */
-export const SETTLED = `document.fonts.ready.then(() => new Promise((resolve) =>
+export const SETTLED: string = `document.fonts.ready.then(() => new Promise((resolve) =>
   requestAnimationFrame(() => requestAnimationFrame(resolve))))`;
