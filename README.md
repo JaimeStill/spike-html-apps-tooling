@@ -3,15 +3,15 @@
 The browser-test and screenshot tooling the
 [spike-html-apps](https://github.com/JaimeStill/spike-html-apps) repositories share: a driver for
 Chrome over the DevTools Protocol, a page wait, a static server, and a screenshot command. It is
-plain Node ES modules with type declarations and no runtime dependency, and is released by git
-tag.
+Node ES modules, written in TypeScript and shipped built, with type declarations and no runtime
+dependency, and is released by git tag.
 
 ## Install
 
 Each release is a tag, `v<version>`, whose tree is the package as `pnpm pack` builds it:
-`package.json`, this README, the LICENSE, and `src/`. The sources ship as written, so the tag
-installs with no build step, and its manifest has no scripts. Install it by the tag, as a
-devDependency:
+`package.json`, this README, the LICENSE, and `dist/`, the build. The build lives only in the
+tag's tree, so the tag installs with no build step, and its manifest has no scripts. Install it
+by the tag, as a devDependency:
 
 ```
 pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.1.0
@@ -24,7 +24,7 @@ project itself declares. Each GitHub release also carries the tarball.
 ## Use
 
 The package is `@jaimestill/spike-html-apps-tooling`. Its modules are imported by their `.js`
-subpaths, each typed by the `.d.ts` beside it in `src/`.
+subpaths, each typed by the `.d.ts` tsc emits beside it in `dist/`.
 
 `./browser.js` drives the browser over the DevTools Protocol on a pipe:
 
@@ -79,7 +79,7 @@ spike-html-apps-screenshots <description> [--all | --<facet> <name>...] [--page 
 ```
 
 `<description>` is the path of a module whose default export is a `Description`, whose shape
-[`src/screenshots.d.ts`](src/screenshots.d.ts) gives. It lists the pages, each with a name, a
+[`src/screenshots.ts`](src/screenshots.ts) gives. It lists the pages, each with a name, a
 caption, a path, and its states, and each state captures either the full page or one viewport.
 It also gives the profile's facets, each with its flag, the root attribute it sets, and its
 default; the profiles `--all` captures; how to read the profiles a page registers; and the
@@ -127,17 +127,19 @@ Tasks run through [mise](https://mise.jdx.dev):
 
 ```
 mise run install   # the pinned tools and node_modules; reads the network
-mise run check     # lint, types, and the unit and browser tiers; reads no network
+mise run build     # src/ into dist/ with tsc
+mise run check     # lint, types, the build, and the unit and browser tiers; reads no network
 mise run currency  # report every tool, package, and action pin behind its latest
 ```
 
-The check lints with ESLint, Prettier, shellcheck, and actionlint, and type-checks the JavaScript
-with tsc. The unit tier tests the server and packs the repository to check the pack's shape. The
-browser tier runs the driver, the server, and the bin in the pinned chrome-headless-shell.
+The check lints with ESLint, Prettier, shellcheck, and actionlint, type-checks the TypeScript
+sources and the JavaScript tests with tsc, and builds `dist/`. The unit tier tests the server and
+packs the build to check the pack's shape. The browser tier runs the driver, the server, and the
+bin from `dist/` in the pinned chrome-headless-shell.
 
 A push to main whose `package.json` version has no tag yet releases that version. The release
-workflow runs the check, commits and tags the pack's tree, and creates a GitHub release from the
-version's `CHANGELOG.md` section with the tarball attached.
+workflow runs the check, which builds `dist/`, commits and tags the pack's tree, and creates a
+GitHub release from the version's `CHANGELOG.md` section with the tarball attached.
 
 ## Provenance
 

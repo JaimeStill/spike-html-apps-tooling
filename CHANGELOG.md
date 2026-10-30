@@ -10,8 +10,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 
 ### Added
 
-- The tooling package, with no runtime dependency, its sources the plain JavaScript that ships,
-  typed by the `.d.ts` beside each module.
+- The tooling package, with no runtime dependency, its sources TypeScript, which tsc builds into
+  `dist/`, each module's `.js` with its `.d.ts`.
 - `./browser.js`: `launch()` starts the browser `BROWSER_EXECUTABLE` names over the DevTools
   Protocol on a pipe, with no sandbox, en-US, and UTC, and rejects when the variable is unset. It
   resolves only `127.0.0.1` and `localhost`, so no background request leaves the machine. Its
@@ -43,8 +43,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
   `--output directory` writes the files and keeps them. `--output browser` also writes an
   `index.html` gallery beside them and opens it with `xdg-open`; a failed open prints the
   gallery's path and exits 1.
-- The release by tag: `v<version>`, whose tree is the pack, with the tarball on its GitHub
-  release.
+- The release by tag: `v<version>`, whose tree is the pack, the build included, with the tarball
+  on its GitHub release.
 
 [Unreleased]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/JaimeStill/spike-html-apps-tooling/releases/tag/v0.1.0
