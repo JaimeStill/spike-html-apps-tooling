@@ -65,11 +65,11 @@ const description = {
     },
   ],
   facets: [
-    { flag: "palette", attribute: "data-palette", default: "flexoki" },
-    { flag: "space", attribute: "data-space", default: "regular" },
-    { flag: "type", attribute: "data-type", default: "mono" },
+    { flag: "palette", attribute: "data-palette", default: "dawn" },
+    { flag: "space", attribute: "data-space", default: "wide" },
+    { flag: "type", attribute: "data-type", default: "plain" },
   ],
-  all: [{ palette: "flexoki" }, { palette: "noctis" }, { space: "compact" }, { type: "sans" }],
+  all: [{ palette: "dawn" }, { palette: "dusk" }, { space: "tight" }, { type: "fancy" }],
   profiles: (page) => page.evaluate("window.registry"),
   prepare: report("prepare"),
   server: {

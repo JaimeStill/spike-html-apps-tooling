@@ -107,8 +107,8 @@ const printed = (dir, shots) =>
 /** The directory output's flag, which the cases that read the files a run keeps take. */
 const DIRECTORY = ["--output", "directory"];
 
-const DEFAULT = "flexoki-regular-mono";
-const DEFAULT_CAPTION = "flexoki, regular, mono";
+const DEFAULT = "dawn-wide-plain";
+const DEFAULT_CAPTION = "dawn, wide, plain";
 
 describe("every page, by default, to a directory", () => {
   /** @type {string} */
@@ -196,9 +196,9 @@ describe("every page, by default, to a directory", () => {
       ["light", "dark"].map((scheme) => [
         "/narrow.html",
         {
-          "data-palette": "flexoki",
-          "data-space": "regular",
-          "data-type": "mono",
+          "data-palette": "dawn",
+          "data-space": "wide",
+          "data-type": "plain",
           "data-scheme": scheme,
         },
         scheme === "dark",
@@ -213,7 +213,7 @@ describe("the flags", () => {
     const result = await run([
       ...DIRECTORY,
       "--type",
-      "sans",
+      "fancy",
       "--page",
       "focus",
       "--scheme",
@@ -225,15 +225,15 @@ describe("the flags", () => {
     assert.equal(
       result.stdout,
       printed(dir, [
-        ["2-focus--flexoki-regular-sans-dark.png", "the focus page: flexoki, regular, sans, dark"],
+        ["2-focus--dawn-wide-fancy-dark.png", "the focus page: dawn, wide, fancy, dark"],
       ]),
     );
-    assert.deepEqual(readdirSync(dir), ["2-focus--flexoki-regular-sans-dark.png"]);
+    assert.deepEqual(readdirSync(dir), ["2-focus--dawn-wide-fancy-dark.png"]);
     const [focus] = result.reports.filter(({ kind }) => kind === "focus");
     assert.deepEqual(focus.attributes, {
-      "data-palette": "flexoki",
-      "data-space": "regular",
-      "data-type": "sans",
+      "data-palette": "dawn",
+      "data-space": "wide",
+      "data-type": "fancy",
       "data-scheme": "dark",
     });
     assert.equal(focus.dark, true);
@@ -241,7 +241,7 @@ describe("the flags", () => {
 
   test("the facet flags combine", async () => {
     const dir = scratchDir();
-    const args = ["--palette", "noctis", "--space", "compact", "--type", "sans"];
+    const args = ["--palette", "dusk", "--space", "tight", "--type", "fancy"];
     const result = await run([
       ...DIRECTORY,
       ...args,
@@ -253,13 +253,13 @@ describe("the flags", () => {
       dir,
     ]);
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(readdirSync(dir), ["2-focus--noctis-compact-sans-light.png"]);
-    assert.match(result.stdout, /^the focus page: noctis, compact, sans, light\n/);
+    assert.deepEqual(readdirSync(dir), ["2-focus--dusk-tight-fancy-light.png"]);
+    assert.match(result.stdout, /^the focus page: dusk, tight, fancy, light\n/);
     const [focus] = result.reports.filter(({ kind }) => kind === "focus");
     assert.deepEqual(focus.attributes, {
-      "data-palette": "noctis",
-      "data-space": "compact",
-      "data-type": "sans",
+      "data-palette": "dusk",
+      "data-space": "tight",
+      "data-type": "fancy",
       "data-scheme": "light",
     });
     assert.equal(focus.dark, false);
@@ -278,12 +278,7 @@ describe("the flags", () => {
       dir,
     ]);
     assert.equal(result.code, 0, result.stderr);
-    const profiles = [
-      "flexoki-regular-mono",
-      "noctis-regular-mono",
-      "flexoki-compact-mono",
-      "flexoki-regular-sans",
-    ];
+    const profiles = ["dawn-wide-plain", "dusk-wide-plain", "dawn-tight-plain", "dawn-wide-fancy"];
     assert.equal(
       result.stdout,
       printed(
@@ -356,7 +351,7 @@ describe("the flags", () => {
       dir,
     ]);
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(readdirSync(dir), ["2-focus--extra-regular-mono-light.png"]);
+    assert.deepEqual(readdirSync(dir), ["2-focus--extra-wide-plain-light.png"]);
   });
 });
 
@@ -386,7 +381,7 @@ describe("exit 2", () => {
   });
 
   test("--all with a facet flag", async () => {
-    const result = await run(["--all", "--space", "compact"], unlaunched);
+    const result = await run(["--all", "--space", "tight"], unlaunched);
     assert.equal(result.code, 2);
     assert.equal(result.stderr, `spike-html-apps-screenshots: --all takes no facet flag\n${usage}`);
   });
@@ -410,7 +405,7 @@ describe("exit 2", () => {
     assert.equal(result.code, 2);
     assert.equal(
       result.stderr,
-      "spike-html-apps-screenshots: unknown palette extra; the palettes narrow.html registers: flexoki, noctis\n",
+      "spike-html-apps-screenshots: unknown palette extra; the palettes narrow.html registers: dawn, dusk\n",
     );
     assert.equal(result.stdout, "");
     assert.equal(existsSync(dir), false);
