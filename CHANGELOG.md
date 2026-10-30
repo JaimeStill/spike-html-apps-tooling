@@ -30,7 +30,8 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 ### Fixed
 
 - A browser's ending, by `close()` or by a process that exits without it, now ends the browser's
-  renderers and services with it and removes its profile only once they are gone. Before, the profile was
+  renderers and services with it and removes its profile once they are gone, waiting at most
+  2 s. Before, the profile was
   removed while the browser's own processes, already sent SIGKILL or exiting after it, were still
   running, and one could write it again after the removal: about one exit in a hundred left
   `Default/Shared Dictionary/` behind. The browser runs in its own process group, which its
