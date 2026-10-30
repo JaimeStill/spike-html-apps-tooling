@@ -73,8 +73,7 @@ describe("a task runner whose server is a grandchild", () => {
       assert.ok(members(started.pid).includes(served));
       assert.ok(members(started.pid).includes(child));
     } finally {
-      const code = await started.stop();
-      assert.equal(typeof code, "number");
+      await started.stop();
     }
     for (const pid of [started.pid, served, child]) assert.equal(running(pid), false, `${pid}`);
     assert.deepEqual(members(started.pid), []);
@@ -99,6 +98,13 @@ describe("a task runner whose server is a grandchild", () => {
     for (const pid of [started.pid, served, child]) assert.equal(running(pid), false, `${pid}`);
     assert.deepEqual(members(started.pid), []);
   });
+});
+
+test("stop resolves to 128 plus the signal's number when the signal ends the command", async () => {
+  const { ready, env } = await fixtureOptions();
+  const started = await start(process.execPath, [server], { ready, env });
+  // The fixture server has no SIGTERM listener, so the group's SIGTERM ends it.
+  assert.equal(await started.stop(), 143);
 });
 
 describe("rejects", () => {

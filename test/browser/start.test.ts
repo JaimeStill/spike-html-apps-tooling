@@ -56,7 +56,6 @@ function run(
   const dir = join(scratch, "out");
   const env: Record<string, string | undefined> = {
     ...process.env,
-    NVIM: undefined,
     START_LOG: log,
     START_MODE: mode,
   };
