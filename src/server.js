@@ -26,7 +26,10 @@ function installed(name, from) {
   for (let dir = resolve(from); ; dir = dirname(dir)) {
     const candidate = join(dir, "node_modules", name);
     if (existsSync(candidate)) return candidate;
-    if (dirname(dir) === dir) throw new Error(`deps: ${name} is installed in no node_modules`);
+    if (dirname(dir) === dir)
+      throw new Error(
+        `deps: ${name} is installed in no node_modules; a named package brings its own dependencies, its pnpm store siblings, so name only the package`,
+      );
   }
 }
 

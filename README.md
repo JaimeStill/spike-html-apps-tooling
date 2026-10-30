@@ -84,7 +84,8 @@ caption, a path, and its states, and each state captures either the full page or
 It also gives the profile's facets, each with its flag, the root attribute it sets, and its
 default; the profiles `--all` captures; how to read the profiles a page registers; and the
 server's options, whose root is the module's directory by default. A consumer under `checkJs`
-types the export:
+types the export; the package's types import `node:http`, so a consumer that checks them needs
+`@types/node`, or `skipLibCheck`:
 
 ```js
 /** @type {import("@jaimestill/spike-html-apps-tooling/screenshots.js").Description} */
