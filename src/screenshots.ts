@@ -125,7 +125,10 @@ const DETECTION = 3;
 const NVIM = "inside a Neovim :terminal (no pixel size, graphics not passed through)";
 
 /** The flags the bin takes for itself, which no facet may take. */
-const RESERVED = ["all", "page", "scheme", "output", "dir", "keep"];
+const RESERVED = ["all", "page", "scheme", "output", "dir", "keep", "help"];
+
+/** The arguments that ask for the help, wherever they come among the flags. */
+const HELP = ["--help", "-h"];
 
 /** A state's viewport when it names none: a full-page capture is taken at this width. */
 const VIEWPORT = { width: 1280, height: 800 };
@@ -388,8 +391,92 @@ function usage(facets: Facet[]) {
   const profiles = flags ? `[--all | ${flags}]` : "[--all]";
   return (
     `usage: ${NAME} <description> ${profiles} [--page <name>]... [--scheme light|dark] ` +
-    `[--output ${OUTPUTS.join("|")}] [--dir <path>] [--keep]`
+    `[--output ${OUTPUTS.join("|")}] [--dir <path>] [--keep] [-h | --help]`
   );
+}
+
+/** The rows as a list under the heading, each row's first column padded to the widest. */
+function section(heading: string, rows: [string, string][]) {
+  const width = Math.max(...rows.map(([term]) => term.length));
+  return [heading, ...rows.map(([term, text]) => `  ${term.padEnd(width)}  ${text}`)].join("\n");
+}
+
+/**
+ * The help --help prints: the usage, the flags' meanings, the schemes, the outputs, and the exit
+ * codes, and, given the description, its pages and its facets. A facet's names are its default
+ * then each name --all's profiles give its flag, in the order first given; a run still checks a
+ * name against each page's registered names, which only a loaded page gives.
+ */
+function help(description?: Awaited<ReturnType<typeof load>>) {
+  const facets = description?.facets ?? [];
+  const parts = [
+    usage(facets),
+    `Captures the pages the description module exports by default, in the browser ` +
+      `BROWSER_EXECUTABLE names, in each profile the flags choose, in each scheme.`,
+    section("flags:", [
+      ["--<facet> <name>", "the facet's name, over its default; the facets are the description's"],
+      ["--all", "every profile the description's all lists, each over the defaults; no facet flag"],
+      ["--page <name>", "only the page named, repeatable; every page by default"],
+      ["--scheme <name>", "only the scheme named, once; both by default"],
+      ["--output <name>", `how the captures are shown; ${OUTPUTS[0]} by default`],
+      ["--dir <path>", "the directory the files go to; a fresh one under TMPDIR by default"],
+      ["--keep", "the terminal output keeps its files and prints their directory"],
+      ["-h, --help", "this help, the description's pages and facets with it; other flags ignored"],
+    ]),
+  ];
+  if (description) {
+    parts.push(
+      section(
+        "pages:",
+        description.pages.map(({ name, caption }) => [name, caption]),
+      ),
+    );
+    if (facets.length > 0) {
+      const names = (facet: Facet) => [
+        ...new Set([
+          facet.default,
+          ...description.all.flatMap((profile) => profile[facet.flag] ?? []),
+        ]),
+      ];
+      parts.push(
+        section(
+          "facets:",
+          facets.map((facet) => [
+            `--${facet.flag} <name>`,
+            `sets ${facet.attribute}; default ${facet.default}; names: ${names(facet).join(", ")}`,
+          ]),
+        ) +
+          "\n  A facet's names are its default and those the description's --all profiles give." +
+          "\n  A run still checks each name it is given against each page's registered names.",
+      );
+    }
+  } else {
+    parts.push(`${NAME} <description> --help also lists the description's pages and facets.`);
+  }
+  parts.push(
+    section(
+      "schemes:",
+      SCHEMES.map((scheme) => [
+        scheme,
+        `prefers-color-scheme ${scheme}, and data-scheme ${scheme} on the root`,
+      ]),
+    ),
+    section("outputs:", [
+      [
+        "terminal",
+        "the default: prints each caption and path, shows each image with kitten icat when the " +
+          "terminal can, and removes the files unless --keep",
+      ],
+      ["directory", "writes the files, prints each caption and path, and keeps the files"],
+      ["browser", "also writes an index.html gallery beside the files and opens it with xdg-open"],
+    ]),
+    section("exit codes:", [
+      ["0", "every capture taken and shown, or the help printed"],
+      ["1", "the browser output's gallery didn't open, or the run failed"],
+      ["2", "a usage error, an unknown page, or a profile a page hasn't registered"],
+    ]),
+  );
+  return parts.join("\n\n");
 }
 
 /**
@@ -505,9 +592,17 @@ function setViewport(page: Page, { width, height }: Viewport) {
  * Runs the screenshot command over its arguments, the description module's path then the flags,
  * resolving to the exit code: 0, 1 when the browser output can't open its gallery, or 2 on a
  * usage error, an unknown page, or a profile a page hasn't registered. Any other failure rejects.
+ * --help, or -h, anywhere among them wins: it prints the help, the description's sections only
+ * when a description comes first, and resolves to 0, before any flag is parsed, so the others are
+ * ignored, and before the server or the browser starts.
  */
 export async function main(argv: string[]): Promise<number> {
   const [path, ...args] = argv;
+  if (argv.some((arg) => HELP.includes(arg))) {
+    const described = path === undefined || path.startsWith("-") ? undefined : await load(path);
+    console.log(help(described));
+    return 0;
+  }
   if (path === undefined || path.startsWith("-")) {
     console.error(usage([]));
     return 2;

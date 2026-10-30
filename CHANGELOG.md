@@ -6,6 +6,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-30
+
+### Added
+
+- The bin's `--help`, or `-h`: it prints the usage, each flag's meaning, the schemes, the outputs,
+  and the exit codes, and exits 0 before any server or browser starts, with no
+  `BROWSER_EXECUTABLE`. It wins over every other flag, which it ignores. After a description,
+  `spike-html-apps-screenshots <description> --help` also lists its pages, each with its caption,
+  and its facets, each with its flag, root attribute, default, and names: the default and each
+  name the description's `all` profiles give the facet's flag. A run still checks a name against
+  each page's registered names. A usage error's usage line names `-h | --help`, and no facet may
+  take the flag `help`.
+- The README shows a description as a `.ts` module, which Node runs by stripping its types: it
+  uses erasable syntax only, lives outside `node_modules`, and is type-checked by the consumer's
+  own `noEmit` project.
+
 ## [0.1.0] - 2026-10-30
 
 ### Added
@@ -46,5 +62,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 - The release by tag: `v<version>`, whose tree is the pack, the build included, with the tarball
   on its GitHub release.
 
-[Unreleased]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/JaimeStill/spike-html-apps-tooling/releases/tag/v0.1.0

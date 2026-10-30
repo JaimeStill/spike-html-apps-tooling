@@ -359,7 +359,7 @@ describe("exit 2", () => {
   // No browser: each of these exits before the browser launches, which would fail without one.
   const unlaunched = { env: { BROWSER_EXECUTABLE: undefined } };
   const usage =
-    "usage: spike-html-apps-screenshots <description> [--all | [--palette <name>] [--space <name>] [--type <name>]] [--page <name>]... [--scheme light|dark] [--output terminal|directory|browser] [--dir <path>] [--keep]\n";
+    "usage: spike-html-apps-screenshots <description> [--all | [--palette <name>] [--space <name>] [--type <name>]] [--page <name>]... [--scheme light|dark] [--output terminal|directory|browser] [--dir <path>] [--keep] [-h | --help]\n";
 
   test("a usage error prints the usage", async () => {
     for (const args of [
@@ -377,7 +377,10 @@ describe("exit 2", () => {
     }
     const bare = await run([], { ...unlaunched, describe: false });
     assert.equal(bare.code, 2);
-    assert.match(bare.stderr, /^usage: spike-html-apps-screenshots <description> \[--all\]/);
+    assert.match(
+      bare.stderr,
+      /^usage: spike-html-apps-screenshots <description> \[--all\] .* \[-h \| --help\]\n$/,
+    );
   });
 
   test("--all with a facet flag", async () => {
@@ -413,6 +416,165 @@ describe("exit 2", () => {
     const unlaunchedResult = await run(args, unlaunched);
     assert.equal(unlaunchedResult.code, 1);
     assert.match(unlaunchedResult.stderr, /BROWSER_EXECUTABLE names no browser/);
+  });
+});
+
+describe("--help", () => {
+  // No browser and an empty TMPDIR: the help prints before the browser launches, which would fail
+  // without one, and before any file is written.
+  /** @param {string} temp */
+  const unlaunched = (temp) => ({ env: { BROWSER_EXECUTABLE: undefined, TMPDIR: temp } });
+  const usage =
+    "usage: spike-html-apps-screenshots <description> [--all | [--palette <name>] [--space <name>] [--type <name>]] [--page <name>]... [--scheme light|dark] [--output terminal|directory|browser] [--dir <path>] [--keep] [-h | --help]\n";
+  /** The help's sections, by heading, each its lines below the heading. @param {string} stdout */
+  const sections = (stdout) =>
+    Object.fromEntries(
+      stdout
+        .replace(/\n$/, "")
+        .split("\n\n")
+        .map((part) => part.split("\n"))
+        .filter(([heading]) => heading.endsWith(":"))
+        .map(([heading, ...lines]) => [heading, lines]),
+    );
+  /** The flag rows, the same with or without a description. */
+  const FLAGS = [
+    "--<facet>",
+    "--all",
+    "--page",
+    "--scheme",
+    "--output",
+    "--dir",
+    "--keep",
+    "-h, --help",
+  ];
+  /** The sections after the description's, the same with or without one. @param {Record<string, string[]>} found */
+  const assertCommon = (found) => {
+    assert.deepEqual(
+      found["flags:"].map((line) => FLAGS.find((flag) => line.startsWith(`  ${flag}`))),
+      FLAGS,
+    );
+    assert.deepEqual(
+      found["schemes:"].map((line) => line.trim().split(" ")[0]),
+      ["light", "dark"],
+    );
+    assert.deepEqual(
+      found["outputs:"].map((line) => line.trim().split(" ")[0]),
+      ["terminal", "directory", "browser"],
+    );
+    assert.match(found["outputs:"][0], /^ {2}terminal {3}the default: /);
+    assert.deepEqual(
+      found["exit codes:"].map((line) => line.trim().split(" ")[0]),
+      ["0", "1", "2"],
+    );
+  };
+
+  test("over the description: the usage, the flags, its pages and facets, before launch", async () => {
+    const temp = scratchDir();
+    const result = await run(["--help"], unlaunched(temp));
+    assert.equal(result.stderr, "");
+    assert.equal(result.code, 0);
+    assert.ok(result.stdout.startsWith(usage), result.stdout);
+    const found = sections(result.stdout);
+    assert.deepEqual(found["pages:"], [
+      "  long    the long page",
+      "  focus   the focus page",
+      "  narrow  the narrow page",
+    ]);
+    // Each facet's default, then the names the fixture's all gives its flag: dawn twice, dusk;
+    // tight; fancy.
+    assert.deepEqual(found["facets:"], [
+      "  --palette <name>  sets data-palette; default dawn; names: dawn, dusk",
+      "  --space <name>    sets data-space; default wide; names: wide, tight",
+      "  --type <name>     sets data-type; default plain; names: plain, fancy",
+      "  A facet's names are its default and those the description's --all profiles give.",
+      "  A run still checks each name it is given against each page's registered names.",
+    ]);
+    assertCommon(found);
+    assert.deepEqual(readdirSync(temp), []);
+  });
+
+  test("wins over the other flags, -h as well, a bad one included", async () => {
+    const temp = scratchDir();
+    const dir = join(temp, "out");
+    const help = await run(["--help"], unlaunched(temp));
+    for (const args of [
+      ["--page", "focus", "--dir", dir, "--help"],
+      ["--bogus", "--page", "nope", "--dir", dir, "-h"],
+      ["--all", "--palette", "dusk", "--help"],
+    ]) {
+      const result = await run(args, unlaunched(temp));
+      assert.equal(result.code, 0, args.join(" "));
+      assert.equal(result.stderr, "", args.join(" "));
+      assert.equal(result.stdout, help.stdout, args.join(" "));
+    }
+    assert.deepEqual(readdirSync(temp), []);
+  });
+
+  test("with no description: the general usage and flags, no pages or facets", async () => {
+    const temp = scratchDir();
+    for (const args of [["--help"], ["-h", "--page", "focus"]]) {
+      const result = await run(args, { ...unlaunched(temp), describe: false });
+      assert.equal(result.code, 0, args.join(" "));
+      assert.equal(result.stderr, "");
+      assert.match(
+        result.stdout,
+        /^usage: spike-html-apps-screenshots <description> \[--all\] \[--page <name>\]/,
+      );
+      const found = sections(result.stdout);
+      assert.equal(found["pages:"], undefined);
+      assert.equal(found["facets:"], undefined);
+      assert.match(
+        result.stdout,
+        /\nspike-html-apps-screenshots <description> --help also lists the description's pages and facets\.\n/,
+      );
+      assertCommon(found);
+    }
+    assert.deepEqual(readdirSync(temp), []);
+  });
+
+  test("a facet can't take the flag --help, with --help or without", async () => {
+    const scratch = scratchDir();
+    /** A description module whose one facet takes the flag, its path. @param {string} flag */
+    const module = (flag) => {
+      const path = join(scratch, `${flag}.js`);
+      writeFileSync(
+        path,
+        `export default { pages: [{ name: "a", caption: "the a page", path: "a.html" }], ` +
+          `facets: [{ flag: ${JSON.stringify(flag)}, attribute: "data-x", default: "x" }] };\n`,
+      );
+      return path;
+    };
+    const refused = module("help");
+    for (const args of [[refused], [refused, "--help"]]) {
+      const result = await run(args, { ...unlaunched(scratchDir()), describe: false });
+      assert.equal(result.code, 1, args.join(" "));
+      assert.match(result.stderr, /help\.js: a facet can't take the flag --help/);
+      assert.equal(result.stdout, "");
+    }
+    // The same module with another flag is taken.
+    const taken = await run([module("helper"), "--help"], {
+      ...unlaunched(scratchDir()),
+      describe: false,
+    });
+    assert.equal(taken.code, 0, taken.stderr);
+    assert.match(taken.stdout, /\n {2}--helper <name> {2}sets data-x; default x; names: x\n/);
+  });
+  test("a .ts description, its types erasable, loads", async () => {
+    const path = join(scratchDir(), "description.ts");
+    writeFileSync(
+      path,
+      `import type { Description } from "@jaimestill/spike-html-apps-tooling/screenshots.js";\n` +
+        `const description: Description = {\n` +
+        `  pages: [{ name: "typed", caption: "the typed page", path: "typed.html" }],\n` +
+        `};\n` +
+        `export default description;\n`,
+    );
+    const result = await run([path, "--help"], {
+      ...unlaunched(scratchDir()),
+      describe: false,
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(sections(result.stdout)["pages:"], ["  typed  the typed page"]);
   });
 });
 
