@@ -14,8 +14,8 @@ tag's tree, so the tag installs with no build step, and its manifest has no scri
 by the tag, as a devDependency:
 
 ```
-pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.1.1
-npm install -D --allow-git=root github:JaimeStill/spike-html-apps-tooling#v0.1.1
+pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.2.0
+npm install -D --allow-git=root github:JaimeStill/spike-html-apps-tooling#v0.2.0
 ```
 
 npm 12 refuses git dependencies unless `--allow-git` allows them; `root` allows the ones the

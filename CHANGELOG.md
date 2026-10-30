@@ -6,7 +6,7 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-10-30
+## [0.2.0] - 2026-10-30
 
 ### Added
 
@@ -77,6 +77,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 - The release by tag: `v<version>`, whose tree is the pack, the build included, with the tarball
   on its GitHub release.
 
-[Unreleased]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/JaimeStill/spike-html-apps-tooling/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/JaimeStill/spike-html-apps-tooling/releases/tag/v0.1.0
