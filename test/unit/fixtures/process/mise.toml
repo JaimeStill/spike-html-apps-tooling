@@ -1,0 +1,5 @@
+# The fixture task runner the process helper's tests start: mise runs the dev task's command as
+# its own child, so the fixture server is a grandchild of the helper's caller. The tools are the
+# repository's, from its mise.toml, which mise reads from the directories above.
+[tasks.dev]
+run = "node server.ts"

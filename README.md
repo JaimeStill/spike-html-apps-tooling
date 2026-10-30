@@ -2,9 +2,9 @@
 
 The browser-test and screenshot tooling the
 [spike-html-apps](https://github.com/JaimeStill/spike-html-apps) repositories share: a driver for
-Chrome over the DevTools Protocol, a page wait, a static server, and a screenshot command. It is
-Node ES modules, written in TypeScript and shipped built, with type declarations and no runtime
-dependency, and is released by git tag.
+Chrome over the DevTools Protocol, a page wait, a static server, a process helper that starts any
+other server, and a screenshot command. It is Node ES modules, written in TypeScript and shipped
+built, with type declarations and no runtime dependency, and is released by git tag.
 
 ## Install
 
@@ -14,8 +14,8 @@ tag's tree, so the tag installs with no build step, and its manifest has no scri
 by the tag, as a devDependency:
 
 ```
-pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.2.0
-npm install -D --allow-git=root github:JaimeStill/spike-html-apps-tooling#v0.2.0
+pnpm add -D github:JaimeStill/spike-html-apps-tooling#v0.3.0
+npm install -D --allow-git=root github:JaimeStill/spike-html-apps-tooling#v0.3.0
 ```
 
 npm 12 refuses git dependencies unless `--allow-git` allows them; `root` allows the ones the
@@ -65,6 +65,39 @@ serve(options: ServeOptions): Promise<Server>
 - The `Server` it resolves to has `origin`, `http://127.0.0.1:<port>` on a free port, and
   `stop()`.
 
+`./process.js` starts a command that serves an app, such as a dev server or a task runner that
+starts one, and finds it a port:
+
+```ts
+start(command: string, args: string[], options: StartOptions): Promise<Started>
+freePort(): Promise<number>
+```
+
+- `start` runs the command with its args in a process group of its own, in `options.cwd`, with
+  `options.env` set over the caller's environment; a variable set to `undefined` is removed. It
+  resolves once `options.ready`, a URL, answers 2xx over HTTP; readiness is that poll alone. It
+  rejects when the command exits first, or when `options.timeout` passes, 30 s by default, which
+  also ends the group; both rejections' messages end with what the command wrote.
+- The `Started` it resolves to has `pid`, the command's pid and its group's id; `output()`, the
+  last 64 KiB of its stdout and stderr, interleaved; and `stop()`. `stop()` sends the whole group
+  SIGTERM, then SIGKILL once `options.drain` passes, 5 s by default, and resolves, once no process
+  of the group is left, to the command's exit code, or 128 plus the signal's number when a signal
+  ended it.
+- A server the command starts as a grandchild, as `mise run dev` or `ng serve` does, joins the
+  group, so `stop()` ends it too. A group the caller never stops is sent SIGKILL when the caller
+  exits, or when a signal the caller has no listener for ends it.
+- `freePort()` resolves to a loopback port no one listens on, for the command's server to take.
+
+```ts
+const port = await freePort();
+const app = await start("mise", ["run", "dev"], {
+  ready: `http://127.0.0.1:${port}/`,
+  env: { PORT: String(port) },
+});
+// ...
+await app.stop();
+```
+
 `./screenshots.js` holds the screenshot command, `main(argv: string[]): Promise<number>`, which
 the bin runs, and the `Description` type a consumer's description module exports.
 
@@ -79,13 +112,12 @@ spike-html-apps-screenshots <description> [--all | --<facet> <name>...] [--page 
 ```
 
 `<description>` is the path of a module whose default export is a `Description`, whose shape
-[`src/screenshots.ts`](src/screenshots.ts) gives. It lists the pages, each with a name, a
-caption, a path, and its states, and each state captures either the full page or one viewport.
-It also gives the profile's facets, each with its flag, the root attribute it sets, and its
-default; the profiles `--all` captures; how to read the profiles a page registers; and the
-server's options, whose root is the module's directory by default. A consumer under `checkJs`
-types the export; the package's types import `node:http`, so a consumer that checks them needs
-`@types/node`, or `skipLibCheck`:
+[`src/screenshots.ts`](src/screenshots.ts) gives. It lists the pages, each with a name, a caption, a
+path, and its states, and each state captures either the full page or one viewport. It also gives
+the profile's facets, each with its flag, the root attribute it sets, and its default; the profiles
+`--all` captures; how to read the profiles a page registers; and the server the pages are served
+from. A consumer under `checkJs` types the export; the package's types import `node:http`, so a
+consumer that checks them needs `@types/node`, or `skipLibCheck`:
 
 ```js
 /** @type {import("@jaimestill/spike-html-apps-tooling/screenshots.js").Description} */
@@ -102,6 +134,42 @@ import type { Description } from "@jaimestill/spike-html-apps-tooling/screenshot
 
 const description: Description = {
   pages: [{ name: "tools", caption: "Tools", path: "demo/tools.html" }],
+};
+export default description;
+```
+
+The description's `server` takes one of two forms:
+
+- The static server's options, those `serve` takes, each optional: the root is the module's
+  directory by default. The bin serves them on a free port for the run.
+- A start function, `() => Promise<{ origin: string; stop(): Promise<void> }>`, for an app any
+  other server serves: an emulator, Vite, bun, `ng serve`, or a `mise run dev`. The bin calls it
+  once its arguments are checked, after `--help`, the usage errors, and an unknown page, which
+  start nothing, and before the first capture. Each page's path resolves against the origin, as
+  a directory, so an origin with a base path, as `http://127.0.0.1:5173/app`, keeps it. The bin
+  calls `stop()` exactly once: as the run ends, when it fails, and on SIGINT or SIGTERM, after
+  which it exits 130 or 143. A start that rejects fails the run, naming its error. The process
+  helper makes one:
+
+```ts
+import { freePort, start } from "@jaimestill/spike-html-apps-tooling/process.js";
+import type { Description } from "@jaimestill/spike-html-apps-tooling/screenshots.js";
+
+const description: Description = {
+  pages: [{ name: "home", caption: "Home", path: "index.html" }],
+  server: async () => {
+    const port = await freePort();
+    const app = await start("mise", ["run", "dev"], {
+      ready: `http://127.0.0.1:${port}/`,
+      env: { PORT: String(port) },
+    });
+    return {
+      origin: `http://127.0.0.1:${port}`,
+      stop: async () => {
+        await app.stop();
+      },
+    };
+  },
 };
 export default description;
 ```
@@ -158,6 +226,7 @@ mise run currency  # report every tool, package, and action pin behind its lates
 
 The check lints with ESLint, Prettier, shellcheck, and actionlint, type-checks the TypeScript
 sources and the TypeScript tests with tsc, and builds `dist/`. The unit tier tests the server and
+the process helper, the latter through a fixture `mise run` task whose server is a grandchild, and
 packs the build to check the pack's shape. The browser tier runs the driver, the server, and the
 bin from `dist/` in the pinned chrome-headless-shell.
 

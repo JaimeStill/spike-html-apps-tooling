@@ -9,10 +9,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
+
+import { alive, ended, kill } from "./group.ts";
 
 /** A browser launch started, until it is closed. */
 export interface Browser {
@@ -41,45 +43,6 @@ const settings = { lang: "en-US", tz: "UTC", width: 1280, height: 720 };
 
 /** How long a browser's ending waits for its processes to be gone before removing its profile. */
 const ENDING = 2000;
-
-/**
- * Whether any process of the group is alive. Linux's /proc tells a live process from a zombie,
- * which is dead but counts toward the group until its parent reaps it, as the browser's own
- * process is until the event loop runs again; elsewhere signal 0 tests the group, zombies included,
- * so an exit there waits out ENDING.
- */
-function alive(group: number): boolean {
-  if (existsSync("/proc/self/stat")) {
-    for (const entry of readdirSync("/proc")) {
-      if (!/^\d+$/.test(entry)) continue;
-      let stat: string;
-      try {
-        stat = readFileSync(`/proc/${entry}/stat`, "utf8");
-      } catch {
-        continue; // The process ended while the directory was read.
-      }
-      // After the command's closing parenthesis: the state, the parent's pid, the group.
-      const [state, , pgrp] = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      if (Number(pgrp) === group && state !== "Z" && state !== "X") return true;
-    }
-    return false;
-  }
-  try {
-    process.kill(-group, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Sends the group SIGKILL, when any of it is left. */
-function kill(group: number): void {
-  try {
-    process.kill(-group, "SIGKILL");
-  } catch {
-    // ESRCH: the group is gone already.
-  }
-}
 
 /**
  * Launches the browser BROWSER_EXECUTABLE names, resolving once the protocol answers; rejects
@@ -213,10 +176,7 @@ export async function launch(): Promise<Browser> {
     // The browser's processes outlive it briefly, and write its profile while they do.
     if (group !== undefined) {
       kill(group);
-      const deadline = performance.now() + ENDING;
-      while (alive(group) && performance.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await ended(group, ENDING);
     }
     rmSync(profile, { recursive: true, force: true });
   };

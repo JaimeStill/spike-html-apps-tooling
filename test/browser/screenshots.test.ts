@@ -478,7 +478,7 @@ describe("--help", () => {
     assert.match(found["outputs:"][0], /^ {2}terminal {3}the default: /);
     assert.deepEqual(
       found["exit codes:"].map((line) => line.trim().split(" ")[0]),
-      ["0", "1", "2"],
+      ["0", "1", "2", "130", "143"],
     );
   };
 
