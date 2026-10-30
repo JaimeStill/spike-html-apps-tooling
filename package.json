@@ -1,15 +1,27 @@
 {
   "name": "@jaimestill/spike-html-apps-tooling",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "type": "module",
   "files": [
     "dist"
   ],
   "exports": {
-    "./*.js": {
-      "types": "./dist/*.d.ts",
-      "default": "./dist/*.js"
+    "./browser.js": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./process.js": {
+      "types": "./dist/process.d.ts",
+      "default": "./dist/process.js"
+    },
+    "./screenshots.js": {
+      "types": "./dist/screenshots.d.ts",
+      "default": "./dist/screenshots.js"
+    },
+    "./server.js": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
     }
   },
   "bin": {
