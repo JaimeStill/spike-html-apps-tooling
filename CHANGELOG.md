@@ -6,6 +6,33 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
 
 ## [Unreleased]
 
+### Added
+
+- A description's `server` may be a start function, `() => Promise<Server>`, typed as `Start` in
+  `./screenshots.js`, for an app any server serves, instead of the static server's options. The
+  bin calls it once, after the arguments, `--help`, and an unknown page are checked, so the help
+  and every exit-2 error start nothing, and before the first capture. Each page resolves against
+  the origin it resolves to, as a directory, so a base path is kept. The bin calls its `stop()`
+  exactly once: as the run ends, when it fails, and on SIGINT or SIGTERM. A start that rejects
+  fails the run, naming its error. The static form is unchanged.
+- `./process.js`: `start(command, args, options)` runs the command in a process group of its own,
+  in `options.cwd`, with `options.env` over the caller's environment, and resolves once
+  `options.ready` answers 2xx over HTTP. It rejects when the command exits first, or at
+  `options.timeout`, 30 s by default, which ends the group; both rejections carry the command's
+  output. Its `Started` has `pid`, `output()`, the last 64 KiB of stdout and stderr, and `stop()`,
+  which sends the group SIGTERM, then SIGKILL after `options.drain`, 5 s by default, and resolves
+  to the exit code once no process of the group is left. A server a task runner starts as a
+  grandchild, as `mise run dev` or `ng serve` does, ends with the group. A group never stopped is
+  sent SIGKILL when the caller exits, or when a signal the caller doesn't listen for ends it.
+- `./process.js`: `freePort()` resolves to a free loopback port.
+- The help's exit codes list 130 and 143, the run ended by SIGINT or SIGTERM.
+
+### Changed
+
+- The bin handles SIGINT and SIGTERM itself for every output, `--keep` included: it stops the
+  server, removes the terminal output's files unless `--keep`, and exits 130 or 143. Before, only
+  the terminal output without `--keep` handled SIGINT, and SIGTERM ended the run by its default.
+
 ## [0.2.0] - 2026-10-30
 
 ### Added

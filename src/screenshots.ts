@@ -18,7 +18,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants as os, tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
@@ -80,6 +80,14 @@ export interface DescribedPage {
   states?: DescribedState[];
 }
 
+/**
+ * A server the consumer starts itself, as a start function: it resolves to the server's origin,
+ * which the pages' paths resolve against, and a stop(), or rejects naming why it didn't start.
+ * The bin calls it once its arguments are checked, before any capture, and calls the stop exactly
+ * once: as the run ends, however it ends, a failure, SIGINT, or SIGTERM included.
+ */
+export type Start = () => Promise<Server>;
+
 /** A consumer's captures, the default export of the module the bin's first argument names. */
 export interface Description {
   /** The pages, in the order they're captured and numbered. */
@@ -97,9 +105,10 @@ export interface Description {
   prepare?: Step;
   /**
    * The server the pages are served from: serve's options, the root resolved against the
-   * description module's directory, which it is by default.
+   * description module's directory, which it is by default; or a start function, for an app
+   * another server serves.
    */
-  server?: Partial<ServeOptions>;
+  server?: Partial<ServeOptions> | Start;
 }
 
 /** The bin's name, which its messages and usage start with. */
@@ -311,8 +320,8 @@ ${figures.join("\n")}
 const outputs: Record<string, (files: Files, flags: { keep: boolean }) => Output> = {
   // Prints each caption and its path, and shows each image with kitty's icat when the terminal
   // can, else says why on stderr and names --output browser; it never opens a browser itself.
-  // Its files are removed as the run ends, however it ends, SIGINT included, unless --keep, which
-  // prints the directory kept.
+  // Its files are removed as the run ends, however it ends, unless --keep, which prints the
+  // directory kept: main closes it on SIGINT and SIGTERM too.
   terminal: (files, { keep }) => {
     const icat = onPath("kitten")
       ? ["kitten", "icat"]
@@ -337,11 +346,6 @@ const outputs: Record<string, (files: Files, flags: { keep: boolean }) => Output
     const remove = () => {
       if (!keep) files.remove();
     };
-    const interrupt = () => {
-      remove();
-      process.exit(130);
-    };
-    if (!keep) process.once("SIGINT", interrupt);
     return {
       async show(shot) {
         dir = dirname(shot.path);
@@ -355,10 +359,7 @@ const outputs: Record<string, (files: Files, flags: { keep: boolean }) => Output
       end() {
         if (keep && dir !== undefined) console.log(`kept in ${dir}`);
       },
-      close() {
-        process.off("SIGINT", interrupt);
-        remove();
-      },
+      close: remove,
     };
   },
   // Writes the files and keeps them, printing each caption and its path.
@@ -472,6 +473,8 @@ function help(description?: Awaited<ReturnType<typeof load>>) {
       ["0", "every capture taken and shown, or the help printed"],
       ["1", "the browser output's gallery didn't open, or the run failed"],
       ["2", "a usage error, an unknown page, or a profile a page hasn't registered"],
+      ["130", "SIGINT ended the run, once its server stopped"],
+      ["143", "SIGTERM ended the run, once its server stopped"],
     ]),
   );
   return parts.join("\n\n");
@@ -483,7 +486,9 @@ function help(description?: Awaited<ReturnType<typeof load>>) {
  */
 async function load(
   path: string,
-): Promise<Description & Required<Pick<Description, "facets" | "all">> & { server: ServeOptions }> {
+): Promise<
+  Description & Required<Pick<Description, "facets" | "all">> & { server: ServeOptions | Start }
+> {
   const file = resolve(path);
   const description: Description = (await import(pathToFileURL(file).href)).default;
   if (!Array.isArray(description?.pages) || description.pages.length === 0) {
@@ -500,7 +505,10 @@ async function load(
     ...description,
     facets,
     all: description.all ?? [{}],
-    server: { ...server, root: resolve(dirname(file), server.root ?? ".") },
+    server:
+      typeof server === "function"
+        ? server
+        : { ...server, root: resolve(dirname(file), server.root ?? ".") },
   };
 }
 
@@ -590,6 +598,7 @@ function setViewport(page: Page, { width, height }: Viewport) {
  * Runs the screenshot command over its arguments, the description module's path then the flags,
  * resolving to the exit code: 0, 1 when the browser output can't open its gallery, or 2 on a
  * usage error, an unknown page, or a profile a page hasn't registered. Any other failure rejects.
+ * SIGINT or SIGTERM during the run stops its server and exits the process, 130 or 143.
  * --help, or -h, anywhere among them wins, resolving to 0 before the server or the browser starts.
  */
 export async function main(argv: string[]): Promise<number> {
@@ -679,13 +688,55 @@ export async function main(argv: string[]): Promise<number> {
 
   const written = files(values.dir);
   const shown = outputs[output](written, { keep: values.keep === true });
-  let server: Server | undefined;
+  const described = description.server;
+  /** The server's start, once the run begins it. */
+  let starting: Promise<Server> | undefined;
+  /** The server's stop, once anything asks for it. */
+  let stopping: Promise<void> | undefined;
+  /** Stops the server once, whatever asks first: the run's end, its failure, or a signal. */
+  const stop = () =>
+    (stopping ??= (async () => {
+      // A start that rejected started nothing to stop; its error is the run's.
+      const server = await starting?.catch(() => undefined);
+      await server?.stop();
+    })());
+  let interrupted = false;
+  /**
+   * Ends the run on SIGINT or SIGTERM, exiting 128 plus the signal's number once the server has
+   * stopped and the output has closed; a second signal exits at once. The browser ends with the
+   * process, by its exit listener.
+   */
+  const interrupt = async (signal: NodeJS.Signals) => {
+    const code = 128 + os.signals[signal];
+    if (interrupted) process.exit(code);
+    interrupted = true;
+    try {
+      await stop();
+    } finally {
+      shown.close?.();
+      process.exit(code);
+    }
+  };
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", interrupt);
   let browser: Browser | undefined;
   try {
-    server = await serve(description.server);
-    const { origin } = server;
+    // A start function is called here, once the arguments and the pages are checked, so the help
+    // and every usage error start nothing; one that throws or rejects fails the run, naming why.
+    starting = typeof described === "function" ? (async () => described())() : serve(described);
+    let origin: string;
+    try {
+      ({ origin } = await starting);
+    } catch (error) {
+      if (typeof described !== "function") throw error;
+      throw new Error(`the description's server didn't start: ${(error as Error).message}`, {
+        cause: error,
+      });
+    }
     browser = await launch();
-    const url = (page: DescribedPage) => new URL(page.path, `${origin}/`).href;
+    // The origin as a directory, so a path resolves under any base path a start's origin has.
+    const base = origin.endsWith("/") ? origin : `${origin}/`;
+    const url = (page: DescribedPage) => new URL(page.path, base).href;
 
     // Each named profile checked against every run page's registry, read once the page loads,
     // so the profiles its modules register count, and before any capture.
@@ -779,7 +830,9 @@ export async function main(argv: string[]): Promise<number> {
     return (await shown.end()) ?? 0;
   } finally {
     await browser?.close();
-    await server?.stop();
+    await stop();
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", interrupt);
     shown.close?.();
   }
 }
