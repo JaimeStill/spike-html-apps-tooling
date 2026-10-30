@@ -1,15 +1,13 @@
-// The screenshot command's engine, which bin/screenshots.js runs: a consumer's description module,
-// loaded by the path the first argument names, gives the pages, their states, the profile's
-// facets, and the server; the flags after it choose the profiles, pages, and schemes, and how the
-// captures are shown. Each capture is a fresh page, at its state's viewport, the scheme emulated
-// and the profile's and scheme's attributes on the root, every custom element rendered, and the
-// focus state reached by real Tab presses; a full-page state is cut into tiles at most TILE tall,
-// each one PNG. screenshots.d.ts beside it carries the types a consumer reads.
+// The screenshot command's engine, which bin/screenshots.js runs: the consumer's description
+// module, the first argument, gives the pages, states, facets, and server, and the flags choose the
+// profiles, pages, schemes, and output. Each capture is a fresh page, rendered and focused by real
+// Tab presses; a full page is cut into tiles. screenshots.d.ts carries the types a consumer reads.
 // Adapted from spike-html-apps-components (8ba2be0), spike-html-apps-foundation (6e9669f), and
 // spike-html-apps-noctis (7d7351a): scripts/screenshots.js and scripts/screenshots.sh.
 
 /** @import { Description, DescribedPage, DescribedState, Facet, Viewport } from "./screenshots.js" */
 /** @import { Browser, Page } from "./browser.js" */
+/** @import { Server, ServeOptions } from "./server.js" */
 
 import { spawn, spawnSync } from "node:child_process";
 import {
@@ -191,19 +189,11 @@ function exec(command, args, stdio) {
   });
 }
 
+/** @type {Record<string, string>} Each character HTML reserves, by its entity. */
+const ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
 /** Escapes the text for HTML. @param {string} text */
-const escape = (text) =>
-  text.replace(
-    /[&<>"']/g,
-    (char) =>
-      /** @type {Record<string, string>} */ ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[char],
-  );
+const escape = (text) => text.replace(/[&<>"']/g, (char) => ENTITIES[char]);
 
 /**
  * The browser output's gallery: every shot in capture order under its caption, each image by its
@@ -337,7 +327,7 @@ function usage(facets) {
  * The description the module at the path exports by default, its server's root resolved against
  * the module's directory; throws naming what it lacks.
  * @param {string} path
- * @returns {Promise<Required<Pick<Description, "facets" | "all">> & Description>}
+ * @returns {Promise<Description & Required<Pick<Description, "facets" | "all">> & { server: ServeOptions }>}
  */
 async function load(path) {
   const file = resolve(path);
@@ -534,12 +524,12 @@ export async function main(argv) {
 
   const written = files(/** @type {string | undefined} */ (values.dir));
   const shown = outputs[output](written, { keep: values.keep === true });
-  /** @type {import("./server.js").Server | undefined} */
+  /** @type {Server | undefined} */
   let server;
   /** @type {Browser | undefined} */
   let browser;
   try {
-    server = await serve(/** @type {import("./server.js").ServeOptions} */ (description.server));
+    server = await serve(description.server);
     const { origin } = server;
     browser = await launch();
     /** @param {DescribedPage} page */

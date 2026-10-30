@@ -1,8 +1,7 @@
 // The static server a browser test loads its pages from: a root directory over plain http on the
-// loopback address, every file sent as it is on disk; under /deps/ the installed packages a page's
-// import map names; a shell page for each path with no extension, as an app's server sends its
-// shell for each of the app's deep links; and a handler offered every request first, for the
-// routes a consumer's own cases need. server.d.ts beside it carries the types a consumer reads.
+// loopback address, each file as it is on disk; under /deps/ the installed packages an import map
+// names; the shell page for any extensionless path, an app's deep links; and a handler offered
+// every request first, for a consumer's own routes. server.d.ts carries the types a consumer reads.
 // Adapted from spike-html-apps-components (2fded6d) and spike-html-apps-sdk (ca3089e):
 // test/browser/support/server.js, its deps named by the consumer and its routes a handler's.
 
