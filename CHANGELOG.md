@@ -16,20 +16,25 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the packag
   `spike-html-apps-screenshots <description> --help` also lists its pages, each with its caption,
   and its facets, each with its flag, root attribute, default, and names: the default and each
   name the description's `all` profiles give the facet's flag. A run still checks a name against
-  each page's registered names. A usage error's usage line names `-h | --help`, and no facet may
-  take the flag `help`.
+  each page's registered names.
 - The README shows a description as a `.ts` module, which Node runs by stripping its types: it
   uses erasable syntax only, lives outside `node_modules`, and is type-checked by the consumer's
   own `noEmit` project.
 
+### Changed
+
+- A usage error's usage line names `-h | --help`.
+- No facet may take the flag `help`: a description whose facet does fails to load, as one whose
+  facet takes another of the bin's flags does.
+
 ### Fixed
 
-- A browser's ending, by `close()` or by a process that exits without it, now ends every process
-  the browser started and removes its profile only once they are gone. Before, the profile was
+- A browser's ending, by `close()` or by a process that exits without it, now ends the browser's
+  renderers and services with it and removes its profile only once they are gone. Before, the profile was
   removed while the browser's own processes, already sent SIGKILL or exiting after it, were still
   running, and one could write it again after the removal: about one exit in a hundred left
-  `Default/Shared Dictionary/` behind. The browser runs in its own process group, which every
-  process it starts joins; a parent killed by a signal still ends it, as its pipe closes.
+  `Default/Shared Dictionary/` behind. The browser runs in its own process group, which its
+  renderers and services join; a parent killed by a signal still ends it, as its pipe closes.
 
 ## [0.1.0] - 2026-10-30
 

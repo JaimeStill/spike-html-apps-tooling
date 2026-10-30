@@ -37,7 +37,7 @@ SETTLED: string
 - `launch()` starts the browser that `BROWSER_EXECUTABLE` names, headless, with no sandbox, in
   en-US and UTC, and rejects when the variable is unset. The browser resolves only `127.0.0.1`
   and `localhost`. Its temporary profile is removed on `close()`, or when the process exits
-  without closing it.
+  without closing it, once the browser's processes are gone, waiting at most 2 s for them.
 - `Browser` has `open(url)`, which resolves to a `Page` once the page's load event fires, and
   `close()`. A `Page` is 1280×720 with its scrollbars shown, and has `goto(url)`,
   `cdp(method, params?)`, `on(method, listener)`, `evaluate(expression)`, and `close()`.
