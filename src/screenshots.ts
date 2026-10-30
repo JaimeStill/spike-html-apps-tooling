@@ -403,9 +403,7 @@ function section(heading: string, rows: [string, string][]) {
 
 /**
  * The help --help prints: the usage, the flags' meanings, the schemes, the outputs, and the exit
- * codes, and, given the description, its pages and its facets. A facet's names are its default
- * then each name --all's profiles give its flag, in the order first given; a run still checks a
- * name against each page's registered names, which only a loaded page gives.
+ * codes, and, given the description, its pages and its facets.
  */
 function help(description?: Awaited<ReturnType<typeof load>>) {
   const facets = description?.facets ?? [];
@@ -592,12 +590,12 @@ function setViewport(page: Page, { width, height }: Viewport) {
  * Runs the screenshot command over its arguments, the description module's path then the flags,
  * resolving to the exit code: 0, 1 when the browser output can't open its gallery, or 2 on a
  * usage error, an unknown page, or a profile a page hasn't registered. Any other failure rejects.
- * --help, or -h, anywhere among them wins: it prints the help, the description's sections only
- * when a description comes first, and resolves to 0, before any flag is parsed, so the others are
- * ignored, and before the server or the browser starts.
+ * --help, or -h, anywhere among them wins, resolving to 0 before the server or the browser starts.
  */
 export async function main(argv: string[]): Promise<number> {
   const [path, ...args] = argv;
+  // Before parseArgs, which takes a value that starts with a dash only joined to its option, as
+  // --dir=-h, a token the scan passes over: the scan never mistakes a value for the help.
   if (argv.some((arg) => HELP.includes(arg))) {
     const described = path === undefined || path.startsWith("-") ? undefined : await load(path);
     console.log(help(described));

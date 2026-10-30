@@ -1,11 +1,7 @@
-// The type check of the suite, mise run types:test, with no emit: the tests and their helpers,
-// which node runs under its type stripping, so tsconfig.json's erasable syntax alone, resolved as
-// node resolves them. A test imports the package by its name, so it is checked against the build's
-// declarations in dist/, as a consumer's code is. rootDir widens to the repository. checkJs types
-// the two files that stay JavaScript by their JSDoc: the fixture stub, run from a PATH as it is,
-// and the lint's config.
-// Adapted from spike-html-apps-foundation (7e5d6c2): tsconfig.test.json, with the JavaScript the
-// replaced tsconfig.js.json checked.
+// The type check of the suite, mise run types:test: the tests and their helpers, which node runs
+// under its type stripping, checked against dist/ as a consumer's code is. checkJs types the two
+// files that stay JavaScript, the fixture stub, run from a PATH, and the lint's config.
+// Adapted from spike-html-apps-foundation (7e5d6c2): tsconfig.test.json, with checkJs.
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {

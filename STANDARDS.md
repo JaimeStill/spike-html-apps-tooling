@@ -28,7 +28,7 @@ The architecture pages that apply, in the architecture repository:
   keeps the earlier lines.
 - Sources use `.ts` relative specifiers, which tsc rewrites.
 - Tests are TypeScript run under Node's type stripping, erasable syntax only, type-checked by
-  `tsconfig.test.json`; browser-served fixtures stay `.js`.
+  `tsconfig.test.json`; browser-served fixtures, and the stub a test runs from a PATH, stay `.js`.
 - The tests test `dist/`: a test imports the package by its own name, or runs its bin, as a
   consumer does.
 - A mise task runs one script or one command, and `check` is a depends list.

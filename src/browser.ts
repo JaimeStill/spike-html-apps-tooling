@@ -45,7 +45,8 @@ const ENDING = 2000;
 /**
  * Whether any process of the group is alive. Linux's /proc tells a live process from a zombie,
  * which is dead but counts toward the group until its parent reaps it, as the browser's own
- * process is until the event loop runs again; elsewhere signal 0 tests the group, zombies included.
+ * process is until the event loop runs again; elsewhere signal 0 tests the group, zombies included,
+ * so an exit there waits out ENDING.
  */
 function alive(group: number): boolean {
   if (existsSync("/proc/self/stat")) {
@@ -111,10 +112,9 @@ export async function launch(): Promise<Browser> {
       "about:blank",
     ],
     {
-      // Its own process group, which every process it starts joins, so its ending ends them all:
-      // a renderer or the network service killed with the browser, not after it, writes its
-      // profile again after the removal. A parent killed by a signal still ends the group, whose
-      // browser exits as its pipe closes.
+      // Its own process group, which its renderers and services join, so its ending ends them
+      // all: one that outlives the browser writes the profile again after the removal. A parent
+      // killed by a signal still ends the group, whose browser exits as its pipe closes.
       detached: true,
       stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
       env: { ...process.env, TZ: settings.tz, TMPDIR: profile },

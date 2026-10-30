@@ -573,6 +573,7 @@ describe("--help", () => {
     assert.equal(taken.code, 0, taken.stderr);
     assert.match(taken.stdout, /\n {2}--helper <name> {2}sets data-x; default x; names: x\n/);
   });
+
   test("a .ts description, its types erasable, loads", async () => {
     const path = join(scratchDir(), "description.ts");
     writeFileSync(
