@@ -84,7 +84,7 @@ export interface Description {
 
 /**
  * Runs the screenshot command over its arguments, the description module's path then the flags,
- * resolving to the exit code: 0, 1 on a failure, or 2 on a usage error, an unknown page, or a
- * profile a page hasn't registered.
+ * resolving to the exit code: 0, 1 when the browser output can't open its gallery, or 2 on a
+ * usage error, an unknown page, or a profile a page hasn't registered. Any other failure rejects.
  */
 export function main(argv: string[]): Promise<number>;
