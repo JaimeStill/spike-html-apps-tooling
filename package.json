@@ -9,6 +9,9 @@
   "exports": {
     "./*.js": "./src/*.js"
   },
+  "bin": {
+    "spike-html-apps-screenshots": "./src/bin/screenshots.js"
+  },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "26.6.6",
