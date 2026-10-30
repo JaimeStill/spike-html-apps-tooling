@@ -3,7 +3,8 @@
 // served from this directory, with a /log route that appends each page's report to the file
 // SCREENSHOTS_LOG names. Its prepare step gives each page window.report(kind), which posts what the
 // page shows, its focused element, its root's attributes, and its scheme, by a synchronous request,
-// so each line is written before the step that made it ends; every focus reports itself.
+// so each line is written before the step that made it ends; every focus reports itself. With
+// SCREENSHOTS_FAIL=open, the narrow page's open step throws, so a run can end in an error.
 
 import { appendFileSync } from "node:fs";
 
@@ -55,7 +56,10 @@ const description = {
           caption: "the narrow page, opened",
           viewport: { width: 390, height: 300 },
           full: false,
-          open: report("open"),
+          open: async (page) => {
+            if (process.env.SCREENSHOTS_FAIL === "open") throw new Error("the open step fails");
+            await report("open")(page);
+          },
         },
       ],
     },

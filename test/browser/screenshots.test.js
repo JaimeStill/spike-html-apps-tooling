@@ -1,19 +1,33 @@
 // The screenshot bin at its seam, a command line: the package's bin, spawned as a child process as
 // a consumer's task runs it, over the fixture description and its pages, which the package's own
 // server serves. Each case reads the exit code, stdout and stderr, the files written, and each
-// PNG's header for its size, and the reports the fixture pages post as the bin drives them.
+// PNG's header for its size, and the reports the fixture pages post as the bin drives them. The
+// commands the outputs run, kitten, kitty, and xdg-open, are the fixture stub, linked into a PATH
+// of the case's own; the cases where stdout is a terminal run the bin under a pty, by util-linux's
+// script, so the terminal output's checks, and icat's calls, are the real ones.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { after, before, describe, test } from "node:test";
 
 const root = join(import.meta.dirname, "../..");
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const bin = join(root, manifest.bin["spike-html-apps-screenshots"]);
 const description = join(import.meta.dirname, "fixtures/screenshots/description.js");
+const stub = join(import.meta.dirname, "fixtures/screenshots/stub.js");
 
 /** @type {string[]} */
 const scratches = [];
@@ -35,15 +49,18 @@ function scratchDir() {
 
 /**
  * Runs the bin over the fixture description and the arguments, resolving to its exit code, its
- * output, and the reports its pages posted.
+ * output, and the reports its pages posted. Its stdout is a pipe, not a terminal, and it runs
+ * outside any Neovim terminal the tests run in. With interrupt, the bin is sent SIGINT as soon as
+ * it prints.
  * @param {string[]} args
- * @param {{ env?: Record<string, string | undefined>, describe?: boolean }} [options]
- * @returns {Promise<{ code: number | null, stdout: string, stderr: string, reports: Report[] }>}
+ * @param {{ env?: Record<string, string | undefined>, describe?: boolean, interrupt?: boolean }} [options]
+ * @returns {Promise<{ code: number | null, signal: NodeJS.Signals | null, stdout: string,
+ *   stderr: string, reports: Report[] }>}
  */
-function run(args, { env = {}, describe = true } = {}) {
+function run(args, { env = {}, describe = true, interrupt = false } = {}) {
   const log = join(scratchDir(), "log.jsonl");
   /** @type {Record<string, string | undefined>} */
-  const childEnv = { ...process.env, SCREENSHOTS_LOG: log, ...env };
+  const childEnv = { ...process.env, NVIM: undefined, SCREENSHOTS_LOG: log, ...env };
   for (const [name, value] of Object.entries(childEnv)) {
     if (value === undefined) delete childEnv[name];
   }
@@ -53,13 +70,17 @@ function run(args, { env = {}, describe = true } = {}) {
   });
   let stdout = "";
   let stderr = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+  child.stdout.setEncoding("utf8").on("data", (chunk) => {
+    stdout += chunk;
+    if (interrupt) child.kill("SIGINT");
+  });
   child.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
   return new Promise((resolve, reject) => {
     child.once("error", reject);
-    child.once("close", (code) => {
+    child.once("close", (code, signal) => {
       const lines = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
-      resolve({ code, stdout, stderr, reports: lines.filter(Boolean).map((l) => JSON.parse(l)) });
+      const reports = lines.filter(Boolean).map((l) => JSON.parse(l));
+      resolve({ code, signal, stdout, stderr, reports });
     });
   });
 }
@@ -83,10 +104,13 @@ function png(path) {
 const printed = (dir, shots) =>
   shots.map(([name, caption]) => `${caption}\n  ${join(dir, name)}\n`).join("");
 
+/** The directory output's flag, which the cases that read the files a run keeps take. */
+const DIRECTORY = ["--output", "directory"];
+
 const DEFAULT = "flexoki-regular-mono";
 const DEFAULT_CAPTION = "flexoki, regular, mono";
 
-describe("no flags", () => {
+describe("every page, by default, to a directory", () => {
   /** @type {string} */
   let dir;
   /** @type {Awaited<ReturnType<typeof run>>} */
@@ -94,7 +118,7 @@ describe("no flags", () => {
   before(async () => {
     // Two levels the bin makes.
     dir = join(scratchDir(), "made", "here");
-    result = await run(["--dir", dir]);
+    result = await run([...DIRECTORY, "--dir", dir]);
   });
 
   /** Each capture's file and caption, in the order captured. */
@@ -187,6 +211,7 @@ describe("the flags", () => {
   test("a facet flag sets that facet over the defaults", async () => {
     const dir = scratchDir();
     const result = await run([
+      ...DIRECTORY,
       "--type",
       "sans",
       "--page",
@@ -217,7 +242,16 @@ describe("the flags", () => {
   test("the facet flags combine", async () => {
     const dir = scratchDir();
     const args = ["--palette", "noctis", "--space", "compact", "--type", "sans"];
-    const result = await run([...args, "--page", "focus", "--scheme", "light", "--dir", dir]);
+    const result = await run([
+      ...DIRECTORY,
+      ...args,
+      "--page",
+      "focus",
+      "--scheme",
+      "light",
+      "--dir",
+      dir,
+    ]);
     assert.equal(result.code, 0, result.stderr);
     assert.deepEqual(readdirSync(dir), ["2-focus--noctis-compact-sans-light.png"]);
     assert.match(result.stdout, /^the focus page: noctis, compact, sans, light\n/);
@@ -233,7 +267,16 @@ describe("the flags", () => {
 
   test("--all captures the description's matrix, each over the defaults", async () => {
     const dir = scratchDir();
-    const result = await run(["--all", "--page", "focus", "--scheme", "light", "--dir", dir]);
+    const result = await run([
+      ...DIRECTORY,
+      "--all",
+      "--page",
+      "focus",
+      "--scheme",
+      "light",
+      "--dir",
+      dir,
+    ]);
     assert.equal(result.code, 0, result.stderr);
     const profiles = [
       "flexoki-regular-mono",
@@ -256,6 +299,7 @@ describe("the flags", () => {
   test("--page, repeated, captures the pages named in the description's order, one scheme", async () => {
     const dir = scratchDir();
     const result = await run([
+      ...DIRECTORY,
       "--page",
       "narrow",
       "--page",
@@ -281,7 +325,9 @@ describe("the flags", () => {
 
   test("with no --dir, the files go to a fresh screenshots.XXXXXX under TMPDIR, kept", async () => {
     const temp = scratchDir();
-    const result = await run(["--page", "focus", "--scheme", "light"], { env: { TMPDIR: temp } });
+    const result = await run([...DIRECTORY, "--page", "focus", "--scheme", "light"], {
+      env: { TMPDIR: temp },
+    });
     assert.equal(result.code, 0, result.stderr);
     const made = readdirSync(temp);
     assert.equal(made.length, 1);
@@ -299,6 +345,7 @@ describe("the flags", () => {
   test("a profile registered once the page has rendered is accepted", async () => {
     const dir = scratchDir();
     const result = await run([
+      ...DIRECTORY,
       "--palette",
       "extra",
       "--page",
@@ -374,13 +421,304 @@ describe("exit 2", () => {
   });
 });
 
-test("--output terminal and browser are not yet implemented", async () => {
-  for (const output of ["terminal", "browser"]) {
-    const result = await run(["--output", output], { env: { BROWSER_EXECUTABLE: undefined } });
-    assert.equal(result.code, 1);
+/**
+ * @typedef {{ name: string, args: string[], terminal: boolean, tty: boolean }} Call
+ */
+
+/**
+ * A PATH holding the fixture stub under each name, and node's directory, so the bin runs, and
+ * nothing else: no real kitten, kitty, or xdg-open. The env gives it, and the stubs' log, which
+ * calls() reads.
+ * @param {string[]} names
+ * @param {Record<string, number>} [statuses] The stubs' exit statuses, as STUB_EXIT takes them.
+ */
+function stubbed(names, statuses = {}) {
+  const dir = scratchDir();
+  for (const name of names) symlinkSync(stub, join(dir, name));
+  const log = join(dir, "calls.jsonl");
+  return {
+    env: {
+      PATH: [dir, dirname(process.execPath)].join(delimiter),
+      STUB_LOG: log,
+      STUB_EXIT: JSON.stringify(statuses),
+    },
+    /** @returns {Call[]} Each stub's call, in order. */
+    calls: () =>
+      existsSync(log)
+        ? readFileSync(log, "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+        : [],
+  };
+}
+
+/** The command's path on the test's own PATH, before a case's PATH replaces it. @param {string} name */
+function which(name) {
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (existsSync(join(dir, name))) return join(dir, name);
+  }
+  throw new Error(`${name} is not on PATH`);
+}
+
+/** Quotes the word for the shell. @param {string} word */
+const quote = (word) => `'${word.replaceAll("'", `'\\''`)}'`;
+
+/**
+ * Runs the bin over the fixture description and the arguments under a pty, by script, so its
+ * stdout is a terminal and /dev/tty opens; with setsid, in a new session, where /dev/tty doesn't.
+ * Its stderr goes to a file of its own, so it reads apart from stdout.
+ * @param {string[]} args
+ * @param {{ env: Record<string, string>, setsid?: boolean }} options
+ */
+function runInPty(args, { env, setsid = false }) {
+  const stderrFile = join(scratchDir(), "stderr");
+  const command = [
+    ...Object.entries(env).map(([name, value]) => `${name}=${quote(value)}`),
+    "exec",
+    ...(setsid ? [quote(which("setsid")), "-w"] : []),
+    ...[bin, description, ...args].map(quote),
+    `2>${quote(stderrFile)}`,
+  ].join(" ");
+  const childEnv = { ...process.env };
+  delete childEnv.NVIM;
+  const child = spawn("script", ["-qec", command, "/dev/null"], {
+    env: childEnv,
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+  return /** @type {Promise<{ code: number | null, stdout: string, stderr: string }>} */ (
+    new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", (code) =>
+        resolve({
+          code,
+          stdout: stdout.replaceAll("\r\n", "\n"),
+          stderr: readFileSync(stderrFile, "utf8"),
+        }),
+      );
+    })
+  );
+}
+
+/** The focus and narrow pages' files and captions, each scheme, in the order captured. */
+const TWO_PAGES = /** @type {[string, string][]} */ ([
+  [`2-focus--${DEFAULT}-light.png`, `the focus page: ${DEFAULT_CAPTION}, light`],
+  [`2-focus--${DEFAULT}-dark.png`, `the focus page: ${DEFAULT_CAPTION}, dark`],
+  [`3-narrow-open--${DEFAULT}-light.png`, `the narrow page, opened: ${DEFAULT_CAPTION}, light`],
+  [`3-narrow-open--${DEFAULT}-dark.png`, `the narrow page, opened: ${DEFAULT_CAPTION}, dark`],
+]);
+const TWO_PAGE_ARGS = ["--page", "focus", "--page", "narrow"];
+
+/** The terminal output's stderr line when it shows no images, for the reason. */
+const fallback = (/** @type {string} */ reason) =>
+  `spike-html-apps-screenshots: no images shown: ${reason}; --output browser shows them in a browser\n`;
+
+/** The icat call for each image, as the stub records it, after its command's own words. */
+const ICAT = ["--transfer-mode=stream", "--align=left", "--fit=both"];
+
+describe("--output terminal", () => {
+  test("is the default; with stdout not a terminal, it prints, says why, calls no icat, and removes its files", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitten", "kitty", "xdg-open"]);
+    const result = await run([...TWO_PAGE_ARGS, "--dir", dir], { env: stubs.env });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout, printed(dir, TWO_PAGES));
+    assert.equal(result.stderr, fallback("stdout is not a terminal"));
+    assert.deepEqual(stubs.calls(), []);
+    assert.equal(existsSync(dir), false);
+  });
+
+  test("--keep keeps the files and prints their directory", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitten"]);
+    const result = await run(["--output", "terminal", ...TWO_PAGE_ARGS, "--dir", dir, "--keep"], {
+      env: stubs.env,
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout, `${printed(dir, TWO_PAGES)}kept in ${dir}\n`);
+    assert.deepEqual(readdirSync(dir).sort(), TWO_PAGES.map(([name]) => name).sort());
+  });
+
+  test("inside a Neovim terminal, the reason names it", async () => {
+    const stubs = stubbed(["kitten"]);
+    const env = { ...stubs.env, NVIM: "/run/user/1000/nvim.1.0" };
+    const result = await run(["--page", "focus", "--scheme", "light"], { env });
+    assert.equal(result.code, 0, result.stderr);
     assert.equal(
       result.stderr,
-      `spike-html-apps-screenshots: --output ${output} is not yet implemented; use --output directory\n`,
+      fallback("inside a Neovim :terminal (no pixel size, graphics not passed through)"),
     );
-  }
+    assert.deepEqual(stubs.calls(), []);
+  });
+
+  test("in a terminal icat supports, each image is shown by kitten icat, in order, after its caption", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitten", "kitty"]);
+    const result = await runInPty([...TWO_PAGE_ARGS, "--dir", dir], { env: stubs.env });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.equal(result.stdout, printed(dir, TWO_PAGES));
+    assert.deepEqual(stubs.calls(), [
+      {
+        name: "kitten",
+        args: ["icat", "--detect-support", "--detection-timeout=3"],
+        terminal: true,
+        tty: true,
+      },
+      ...TWO_PAGES.map(([name]) => ({
+        name: "kitten",
+        args: ["icat", ...ICAT, join(dir, name)],
+        terminal: true,
+        tty: true,
+      })),
+    ]);
+    assert.equal(existsSync(dir), false);
+  });
+
+  test("with no kitten, kitty +kitten icat shows them", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitty"]);
+    const result = await runInPty(["--page", "focus", "--dir", dir], { env: stubs.env });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(
+      stubs.calls().map(({ name, args }) => [name, ...args]),
+      [
+        ["kitty", "+kitten", "icat", "--detect-support", "--detection-timeout=3"],
+        ...TWO_PAGES.slice(0, 2).map(([name]) => [
+          "kitty",
+          "+kitten",
+          "icat",
+          ...ICAT,
+          join(dir, name),
+        ]),
+      ],
+    );
+  });
+
+  test("when icat's detection fails, it falls back", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitten"], { detect: 1 });
+    const result = await runInPty(["--page", "focus", "--dir", dir], { env: stubs.env });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, fallback("kitten icat detection failed"));
+    assert.equal(result.stdout, printed(dir, TWO_PAGES.slice(0, 2)));
+    assert.deepEqual(
+      stubs.calls().map(({ args }) => args),
+      [["icat", "--detect-support", "--detection-timeout=3"]],
+    );
+    assert.equal(existsSync(dir), false);
+  });
+
+  test("with neither kitten nor kitty, it falls back", async () => {
+    const stubs = stubbed(["xdg-open"]);
+    const result = await runInPty(["--page", "focus", "--scheme", "light"], { env: stubs.env });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, fallback("kitten not found"));
+    assert.deepEqual(stubs.calls(), []);
+  });
+
+  test("with no controlling terminal, it falls back", async () => {
+    const stubs = stubbed(["kitten"]);
+    const result = await runInPty(["--page", "focus", "--scheme", "light"], {
+      env: stubs.env,
+      setsid: true,
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, fallback("/dev/tty does not open"));
+    assert.deepEqual(stubs.calls(), []);
+  });
+
+  test("--dir: it removes only what the run made, levels and files", async () => {
+    const stubs = stubbed(["kitten"]);
+    const there = scratchDir();
+    writeFileSync(join(there, "other.txt"), "not the run's");
+    const empty = join(scratchDir(), "empty");
+    mkdirSync(empty);
+    for (const dir of [join(there, "a", "b"), there, empty]) {
+      const result = await run(["--page", "focus", "--dir", dir], { env: stubs.env });
+      assert.equal(result.code, 0, result.stderr);
+      assert.match(result.stdout, new RegExp(`\n  ${dir}/2-focus--`));
+    }
+    assert.deepEqual(readdirSync(there), ["other.txt"]);
+    assert.deepEqual(readdirSync(empty), []);
+  });
+
+  test("an error exit removes the files written before it", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitten"]);
+    const result = await run([...TWO_PAGE_ARGS, "--scheme", "light", "--dir", dir], {
+      env: { ...stubs.env, SCREENSHOTS_FAIL: "open" },
+    });
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /the open step fails/);
+    assert.equal(result.stdout, printed(dir, TWO_PAGES.slice(0, 1)));
+    assert.equal(existsSync(dir), false);
+  });
+
+  test("SIGINT removes the files written before it", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["kitten"]);
+    const result = await run(["--page", "long", "--dir", dir], {
+      env: stubs.env,
+      interrupt: true,
+    });
+    assert.equal(result.code, 130);
+    assert.match(result.stdout, /^the long page: /);
+    assert.equal(existsSync(dir), false);
+  });
+});
+
+describe("--output browser", () => {
+  /** Each URL the gallery's attributes load, in the order they come. */
+  const loads = (/** @type {string} */ html) =>
+    [...html.matchAll(/\b(src|href|srcset|poster|data)=["']?([^"' >]*)/g)].map(([, , url]) => url);
+
+  test("writes index.html beside the files, every tile in order under its caption, and opens it", async () => {
+    const dir = join(scratchDir(), "made");
+    const stubs = stubbed(["xdg-open", "kitten"]);
+    const result = await run(["--output", "browser", ...TWO_PAGE_ARGS, "--dir", dir], {
+      env: stubs.env,
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stderr, "");
+    const page = join(dir, "index.html");
+    assert.equal(result.stdout, `${printed(dir, TWO_PAGES)}the gallery\n  ${page}\n`);
+    assert.deepEqual(
+      stubs.calls().map(({ name, args }) => [name, ...args]),
+      [["xdg-open", pathToFileURL(page).href]],
+    );
+    assert.deepEqual(
+      readdirSync(dir).sort(),
+      ["index.html", ...TWO_PAGES.map(([name]) => name)].sort(),
+    );
+    const html = readFileSync(page, "utf8");
+    assert.deepEqual(
+      loads(html),
+      TWO_PAGES.map(([name]) => name),
+    );
+    assert.deepEqual(
+      [...html.matchAll(/<figcaption>([^<]*)<\/figcaption>/g)].map(([, caption]) => caption),
+      TWO_PAGES.map(([, caption]) => caption),
+    );
+    assert.doesNotMatch(html, /<script|<link|@import|url\(/);
+  });
+
+  test("a failed open prints the gallery's path and exits 1, the files kept", async () => {
+    for (const stubs of [stubbed(["xdg-open"], { "xdg-open": 4 }), stubbed([])]) {
+      const dir = join(scratchDir(), "made");
+      const result = await run(["--output", "browser", "--page", "focus", "--dir", dir], {
+        env: stubs.env,
+      });
+      assert.equal(result.code, 1);
+      const page = join(dir, "index.html");
+      assert.equal(
+        result.stderr,
+        `spike-html-apps-screenshots: xdg-open could not open the gallery; open ${page}\n`,
+      );
+      assert.equal(readdirSync(dir).length, 3);
+    }
+  });
 });

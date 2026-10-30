@@ -11,9 +11,20 @@
 /** @import { Description, DescribedPage, DescribedState, Facet, Viewport } from "./screenshots.js" */
 /** @import { Browser, Page } from "./browser.js" */
 
-import { mkdirSync, mkdtempSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  accessSync,
+  closeSync,
+  constants,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -26,8 +37,21 @@ const NAME = "spike-html-apps-screenshots";
 /** The schemes, each emulated as prefers-color-scheme and set as the root's data-scheme. */
 const SCHEMES = ["light", "dark"];
 
-/** The ways the captures are shown; only directory is implemented yet. */
+/** The ways the captures are shown, the first the default. */
 const OUTPUTS = ["terminal", "directory", "browser"];
+
+/** icat's flags for each image the terminal output shows, before the image's path: the data sent
+ * in the escape codes, so it reaches a terminal at the far end of a pty, left-aligned, and scaled
+ * to fit the screen's width and height. */
+const ICAT = ["--transfer-mode=stream", "--align=left", "--fit=both"];
+
+/** How long, in seconds, icat's support detection waits for the terminal to answer; the process
+ * is killed a little after, so a terminal that never answers can't hang the run. */
+const DETECTION = 3;
+
+/** The fallback's reason inside a Neovim :terminal, whatever check failed: its pty reports no
+ * pixel size and libvterm drops the graphics escape codes, so icat's detection fails there. */
+const NVIM = "inside a Neovim :terminal (no pixel size, graphics not passed through)";
 
 /** The flags the bin takes for itself, which no facet may take. */
 const RESERVED = ["all", "page", "scheme", "output", "dir", "keep"];
@@ -59,8 +83,13 @@ const STATE_SLACK = TILE / 2;
  */
 
 /**
- * How the captures are shown: each as it is written, then once the run ends.
- * @typedef {{ show(shot: Shot): void | Promise<void>, end(): void | Promise<void> }} Output
+ * How the captures are shown: each as it is written, then once every capture is, resolving to the
+ * run's exit code if not 0; close, if it has one, runs as the run ends, however it ends.
+ * @typedef {{
+ *   show(shot: Shot): void | Promise<void>,
+ *   end(): void | number | Promise<void | number>,
+ *   close?(): void,
+ * }} Output
  */
 
 /**
@@ -107,18 +136,188 @@ function files(dir) {
   };
 }
 
+/** Prints the shot's caption, then its path. @param {Shot} shot */
+const print = ({ path, caption }) => console.log(`${caption}\n  ${path}`);
+
+/** Whether an executable of the name is on PATH. @param {string} name */
+function onPath(name) {
+  return (process.env.PATH ?? "").split(delimiter).some((dir) => {
+    try {
+      accessSync(join(dir || ".", name), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
- * The outputs implemented, by --output's name, each given the run's files, so one that cleans up
- * takes away only what the run wrote. --keep is the terminal output's: the directory output keeps
- * its files whatever it says.
- * @type {Record<string, (files: Files) => Output>}
+ * Why the terminal can't show the images, the first check that fails, or undefined when icat can.
+ * Detection runs icat with the run's stdin and stdout, in its process group, so it reaches the
+ * terminal and isn't stopped for touching /dev/tty; its stderr, where it names the transfer mode,
+ * is dropped, and only its exit status counts.
+ * @param {string[] | undefined} icat
+ */
+function unshowable(icat) {
+  if (!process.stdout.isTTY) return "stdout is not a terminal";
+  try {
+    closeSync(openSync("/dev/tty", "r+"));
+  } catch {
+    return "/dev/tty does not open";
+  }
+  if (!icat) return "kitten not found";
+  const [command, ...args] = icat;
+  const { status } = spawnSync(
+    command,
+    [...args, "--detect-support", `--detection-timeout=${DETECTION}`],
+    { stdio: ["inherit", "inherit", "ignore"], timeout: (DETECTION + 2) * 1000 },
+  );
+  if (status !== 0) return "kitten icat detection failed";
+}
+
+/**
+ * Runs the command with the run's stdio, in its process group, resolving to its exit status, or
+ * to undefined when it doesn't start.
+ * @param {string} command
+ * @param {string[]} args
+ * @param {import("node:child_process").StdioOptions} stdio
+ * @returns {Promise<number | null | undefined>}
+ */
+function exec(command, args, stdio) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio });
+    child.once("error", () => resolve(undefined));
+    child.once("close", (code) => resolve(code));
+  });
+}
+
+/** Escapes the text for HTML. @param {string} text */
+const escape = (text) =>
+  text.replace(
+    /[&<>"']/g,
+    (char) =>
+      /** @type {Record<string, string>} */ ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char],
+  );
+
+/**
+ * The browser output's gallery: every shot in capture order under its caption, each image by its
+ * file's name beside the page, and nothing else loaded: the styles are inline.
+ * @param {Shot[]} shots
+ */
+function gallery(shots) {
+  const figures = shots.map(
+    ({ path, caption }) =>
+      `<figure><figcaption>${escape(caption)}</figcaption>` +
+      `<img src="${escape(encodeURIComponent(basename(path)))}" alt="${escape(caption)}"></figure>`,
+  );
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${NAME}</title>
+<style>
+:root { color-scheme: light dark; font: 14px/1.4 system-ui, sans-serif; }
+body { margin: 2rem; }
+figure { margin: 0 0 2.5rem; }
+figcaption { margin-bottom: 0.5rem; }
+img { display: block; max-width: 100%; height: auto; outline: 1px solid GrayText; }
+</style>
+</head>
+<body>
+${figures.join("\n")}
+</body>
+</html>
+`;
+}
+
+/**
+ * The outputs, by --output's name, each given the run's files, so one that cleans up takes away
+ * only what the run wrote, and --keep. --keep is the terminal output's: the others keep their
+ * files whatever it says.
+ * @type {Record<string, (files: Files, flags: { keep: boolean }) => Output>}
  */
 const outputs = {
+  // Prints each caption and its path, and shows each image with kitty's icat when the terminal
+  // can, else says why on stderr and names --output browser; it never opens a browser itself.
+  // Its files are removed as the run ends, however it ends, SIGINT included, unless --keep, which
+  // prints the directory kept.
+  terminal: (files, { keep }) => {
+    const icat = onPath("kitten")
+      ? ["kitten", "icat"]
+      : onPath("kitty")
+        ? ["kitty", "+kitten", "icat"]
+        : undefined;
+    /** Whether the terminal can show the images, decided at the first shot, so a run that ends
+     * before any, as a usage error does, says nothing of it. @type {boolean | undefined} */
+    let showable;
+    const decide = () => {
+      const reason = unshowable(icat);
+      if (reason !== undefined) {
+        console.error(
+          `${NAME}: no images shown: ${process.env.NVIM ? NVIM : reason}; ` +
+            "--output browser shows them in a browser",
+        );
+      }
+      return reason === undefined;
+    };
+    /** @type {string | undefined} The directory the files are in, once one is written. */
+    let dir;
+    const remove = () => {
+      if (!keep) files.remove();
+    };
+    const interrupt = () => {
+      remove();
+      process.exit(130);
+    };
+    if (!keep) process.once("SIGINT", interrupt);
+    return {
+      async show(shot) {
+        dir = dirname(shot.path);
+        showable ??= decide();
+        print(shot);
+        if (icat && showable) {
+          const [command, ...args] = icat;
+          await exec(command, [...args, ...ICAT, shot.path], "inherit");
+        }
+      },
+      end() {
+        if (keep && dir !== undefined) console.log(`kept in ${dir}`);
+      },
+      close() {
+        process.off("SIGINT", interrupt);
+        remove();
+      },
+    };
+  },
   // Writes the files and keeps them, printing each caption and its path.
-  directory: () => ({
-    show: ({ path, caption }) => console.log(`${caption}\n  ${path}`),
-    end: () => {},
-  }),
+  directory: () => ({ show: print, end: () => {} }),
+  // Writes the files and keeps them, printing each caption and its path, then the gallery beside
+  // them, index.html, which it opens with xdg-open as a file:// URL; when that fails it prints the
+  // gallery's path on stderr and the run exits 1.
+  browser: (files) => {
+    /** @type {Shot[]} */
+    const shots = [];
+    return {
+      show(shot) {
+        shots.push(shot);
+        print(shot);
+      },
+      async end() {
+        const page = files.write("index.html", Buffer.from(gallery(shots)));
+        console.log(`the gallery\n  ${page}`);
+        const status = await exec("xdg-open", [pathToFileURL(page).href], "ignore");
+        if (status === 0) return;
+        console.error(`${NAME}: xdg-open could not open the gallery; open ${page}`);
+        return 1;
+      },
+    };
+  },
 };
 
 /**
@@ -274,7 +473,7 @@ export async function main(argv) {
     all: { type: "boolean" },
     page: { type: "string", multiple: true },
     scheme: { type: "string", multiple: true },
-    output: { type: "string", default: "directory" },
+    output: { type: "string", default: OUTPUTS[0] },
     dir: { type: "string" },
     keep: { type: "boolean" },
   };
@@ -302,11 +501,6 @@ export async function main(argv) {
   if (misuse) {
     console.error(`${NAME}: ${misuse}\n${usage(facets)}`);
     return 2;
-  }
-  const show = outputs[output];
-  if (!show) {
-    console.error(`${NAME}: --output ${output} is not yet implemented; use --output directory`);
-    return 1;
   }
 
   // The run's pages: those --page names, in the description's order, or every page. An unknown
@@ -339,16 +533,17 @@ export async function main(argv) {
   const pages = description.pages.filter(({ name }) => !chosen || chosen.includes(name));
 
   const written = files(/** @type {string | undefined} */ (values.dir));
-  const shown = show(written);
-  const server = await serve(
-    /** @type {import("./server.js").ServeOptions} */ (description.server),
-  );
+  const shown = outputs[output](written, { keep: values.keep === true });
+  /** @type {import("./server.js").Server | undefined} */
+  let server;
   /** @type {Browser | undefined} */
   let browser;
   try {
+    server = await serve(/** @type {import("./server.js").ServeOptions} */ (description.server));
+    const { origin } = server;
     browser = await launch();
     /** @param {DescribedPage} page */
-    const url = (page) => new URL(page.path, `${server.origin}/`).href;
+    const url = (page) => new URL(page.path, `${origin}/`).href;
 
     // Each named profile checked against every run page's registry, read once the page loads,
     // so the profiles its modules register count, and before any capture.
@@ -439,10 +634,10 @@ export async function main(argv) {
         }
       }
     }
-    await shown.end();
-    return 0;
+    return (await shown.end()) ?? 0;
   } finally {
     await browser?.close();
-    await server.stop();
+    await server?.stop();
+    shown.close?.();
   }
 }
