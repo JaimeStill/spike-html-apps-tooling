@@ -179,17 +179,28 @@ describe("SETTLED", () => {
   test("resolves once the fonts are ready and two frames have painted", async () => {
     const browser = await launch();
     try {
+      // The page's fonts are ready only 200 ms after SETTLED asks, so a wait that skipped them, or
+      // counted its frames before them, would show.
       const tab = await browser.open(
-        page(
-          "<script>window.painted = 0; const tick = () => { window.painted++; requestAnimationFrame(tick); }; requestAnimationFrame(tick);</script>",
-        ),
+        page(`<script>
+          window.painted = 0;
+          const tick = () => { window.painted++; requestAnimationFrame(tick); };
+          requestAnimationFrame(tick);
+          const ready = Object.getOwnPropertyDescriptor(FontFaceSet.prototype, "ready").get;
+          Object.defineProperty(document.fonts, "ready", {
+            get: () => new Promise((resolve) => setTimeout(() => {
+              window.paintedAtReady = window.painted;
+              resolve(ready.call(document.fonts));
+            }, 200)),
+          });
+        </script>`),
       );
-      const reading = await tab.evaluate(`(() => {
-        const start = window.painted;
-        return (${SETTLED}).then(() => ({ fonts: document.fonts.status, frames: window.painted - start }));
-      })()`);
-      assert.equal(reading.fonts, "loaded");
-      assert.ok(reading.frames >= 2, `settled after ${reading.frames} frames`);
+      const reading = await tab.evaluate(`(${SETTLED}).then(() => ({
+        ready: window.paintedAtReady !== undefined,
+        frames: window.painted - window.paintedAtReady,
+      }))`);
+      assert.equal(reading.ready, true, "settled before the fonts were ready");
+      assert.ok(reading.frames >= 2, `settled ${reading.frames} frames after the fonts were ready`);
     } finally {
       await browser.close();
     }

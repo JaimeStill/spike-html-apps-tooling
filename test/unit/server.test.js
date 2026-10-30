@@ -67,7 +67,11 @@ describe("the root", () => {
   });
 
   test("a query or fragment leaves the file it names", async () => {
-    assert.equal((await get(server.origin, "/style.css?v=2")).status, 200);
+    for (const path of ["/style.css?v=2", "/style.css#top", "/style.css?v=2#top"]) {
+      const response = await get(server.origin, path);
+      assert.equal(response.status, 200, path);
+      assert.equal(response.type, "text/css", path);
+    }
   });
 
   test("any other extension, a missing file, a directory, and an extensionless path are a 404", async () => {
