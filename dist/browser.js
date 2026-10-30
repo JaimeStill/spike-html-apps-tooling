@@ -1,0 +1,224 @@
+// The browser driver: the browser BROWSER_EXECUTABLE names, over the DevTools Protocol on a pipe,
+// with no package between, its pages, and the waits a test makes on a page.
+// Adapted from spike-html-apps-components (2fded6d): test/browser/support/browser-pipe.js, in
+// TypeScript, with until from spike-html-apps (a6ff18d): test/browser/support/app.js, rejecting on
+// a thrown expression, and SETTLED from spike-html-apps-components (2fded6d): scripts/screenshots.js.
+// The protocol's results and a page's values are JSON whose shape only the caller knows, so they
+// are any, as JSON.parse's are, for the caller to destructure or annotate.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { alive, ended, kill } from "./group.js";
+/** What every browser runs with, so a reading is the same on any machine. */
+const settings = { lang: "en-US", tz: "UTC", width: 1280, height: 720 };
+/** How long a browser's ending waits for its processes to be gone before removing its profile. */
+const ENDING = 2000;
+/**
+ * Launches the browser BROWSER_EXECUTABLE names, resolving once the protocol answers; rejects
+ * when BROWSER_EXECUTABLE is unset.
+ */
+export async function launch() {
+    const executable = process.env.BROWSER_EXECUTABLE;
+    if (!executable) {
+        throw new Error("BROWSER_EXECUTABLE names no browser; set it to a Chrome or chrome-headless-shell executable");
+    }
+    const profile = mkdtempSync(join(tmpdir(), "browser-pipe."));
+    const child = spawn(executable, [
+        "--headless",
+        // Ubuntu's AppArmor refuses the user namespaces a downloaded Chrome's sandbox needs; the
+        // browser loads only the repository's pages, from the loopback address.
+        "--no-sandbox",
+        "--remote-debugging-pipe",
+        `--user-data-dir=${profile}`,
+        `--lang=${settings.lang}`,
+        "--no-first-run",
+        "--disable-background-networking",
+        "--disable-component-update",
+        // Every name but the loopback address and localhost fails, so no background request leaves
+        // the machine.
+        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost",
+        "about:blank",
+    ], {
+        // Its own process group, which its renderers and services join, so its ending ends them
+        // all: one that outlives the browser writes the profile again after the removal. A parent
+        // killed by a signal still ends the group, whose browser exits as its pipe closes.
+        detached: true,
+        stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
+        env: { ...process.env, TZ: settings.tz, TMPDIR: profile },
+    });
+    // Chromium reads commands on its fd 3 and writes replies and events on its fd 4, each message one
+    // JSON object ended by a NUL.
+    const errors = child.stdio[2];
+    const commands = child.stdio[3];
+    const replies = child.stdio[4];
+    let log = "";
+    errors.setEncoding("utf8");
+    errors.on("data", (chunk) => (log = (log + chunk).slice(-2000)));
+    let next = 0;
+    const waiting = new Map();
+    const listeners = new Map();
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    let gone = false;
+    const fail = () => {
+        gone = true;
+        const last = log.trim().split("\n").at(-1);
+        for (const { reject } of waiting.values())
+            reject(new Error(`Chromium exited: ${last}`));
+        waiting.clear();
+    };
+    exited.then(fail);
+    commands.on("error", fail);
+    replies.on("error", fail);
+    let buffer = "";
+    replies.setEncoding("utf8");
+    replies.on("data", (chunk) => {
+        buffer += chunk;
+        for (let end = buffer.indexOf("\0"); end >= 0; end = buffer.indexOf("\0")) {
+            const message = JSON.parse(buffer.slice(0, end));
+            buffer = buffer.slice(end + 1);
+            if (message.id === undefined) {
+                listeners.get(`${message.sessionId}:${message.method}`)?.(message.params);
+                continue;
+            }
+            const pending = waiting.get(message.id);
+            waiting.delete(message.id);
+            if (message.error)
+                pending?.reject(new Error(`${message.error.message} (CDP)`));
+            else
+                pending?.resolve(message.result);
+        }
+    });
+    /** Sends one command, resolving to its result. */
+    const send = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+        const id = ++next;
+        waiting.set(id, { resolve, reject });
+        if (gone)
+            return fail();
+        commands.write(`${JSON.stringify({ id, method, params, sessionId })}\0`);
+    });
+    /** Calls the listener with each event of the method in the session, replacing any before it. */
+    const on = (sessionId, method, listener) => {
+        listeners.set(`${sessionId}:${method}`, listener);
+    };
+    // The group is the browser's pid; a spawn that failed has none, and nothing to end.
+    const group = child.pid;
+    // A run that ends without closing the browser still ends it and every process it started, and
+    // removes its profile once they are gone, synchronously, as an exit listener must: a process
+    // SIGKILL has not yet ended writes the profile again after the removal. SIGKILL, since a browser
+    // shutting down on SIGTERM writes its profile again too.
+    const orphan = () => {
+        if (group !== undefined) {
+            kill(group);
+            const pause = new Int32Array(new SharedArrayBuffer(4));
+            const deadline = performance.now() + ENDING;
+            while (alive(group) && performance.now() < deadline)
+                Atomics.wait(pause, 0, 0, 10);
+        }
+        try {
+            rmSync(profile, { recursive: true, force: true });
+        }
+        catch {
+            // The process is exiting: a profile it cannot remove is left, not thrown.
+        }
+    };
+    process.once("exit", orphan);
+    /** Ends the browser, by Browser.close or after 5 s by a signal, and removes its profile. */
+    const close = async () => {
+        process.off("exit", orphan);
+        if (!gone) {
+            send("Browser.close").catch(() => { });
+            const timer = setTimeout(() => child.kill(), 5000);
+            await exited;
+            clearTimeout(timer);
+        }
+        // The browser's processes outlive it briefly, and write its profile while they do.
+        if (group !== undefined) {
+            kill(group);
+            await ended(group, ENDING);
+        }
+        rmSync(profile, { recursive: true, force: true });
+    };
+    try {
+        await send("Browser.getVersion");
+    }
+    catch (error) {
+        await close();
+        throw error;
+    }
+    /** Opens the URL in a new page, resolving to the page once its load event fires. */
+    async function open(url) {
+        const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+        // flatten: the page's commands carry its session id on the one pipe.
+        const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
+        const cdp = (method, params) => send(method, params, sessionId);
+        await cdp("Page.enable");
+        // A page Target.createTarget opens headless has no size until one is emulated.
+        const { width, height } = settings;
+        await cdp("Emulation.setDeviceMetricsOverride", {
+            width,
+            height,
+            deviceScaleFactor: 1,
+            mobile: false,
+        });
+        await cdp("Emulation.setEmulatedMedia", {
+            features: [{ name: "prefers-color-scheme", value: "light" }],
+        });
+        // Headless hides scrollbars; a page shows them as a user's browser does, so a scrolling
+        // region's measures and captures match what a user sees.
+        await cdp("Emulation.setScrollbarsHidden", { hidden: false });
+        const goto = async (url) => {
+            const loaded = new Promise((resolve) => on(sessionId, "Page.loadEventFired", resolve));
+            const { errorText } = await cdp("Page.navigate", { url });
+            if (errorText)
+                throw new Error(`${url}: ${errorText}`);
+            await loaded;
+        };
+        await goto(url);
+        return {
+            goto,
+            cdp,
+            on: (method, listener) => on(sessionId, method, listener),
+            async evaluate(expression) {
+                const { result, exceptionDetails } = await cdp("Runtime.evaluate", {
+                    expression,
+                    awaitPromise: true,
+                    returnByValue: true,
+                });
+                if (exceptionDetails) {
+                    throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+                }
+                return result.value;
+            },
+            close: async () => {
+                await send("Target.closeTarget", { targetId });
+            },
+        };
+    }
+    return { open, close };
+}
+/**
+ * Resolves once the expression is truthy in the page, to its value, polling inside the page every
+ * 25 ms; rejects naming the expression and the timeout, 10 s by default, once it passes, or with
+ * the error the expression throws.
+ */
+export function until(page, expression, timeout = 10_000) {
+    return page.evaluate(`new Promise((resolve, reject) => {
+    const deadline = performance.now() + ${timeout};
+    const poll = () => {
+      try {
+        const value = (${expression});
+        if (value) resolve(value);
+        else if (performance.now() > deadline) reject(new Error(${JSON.stringify(`not within ${timeout} ms: ${expression}`)}));
+        else setTimeout(poll, 25);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    poll();
+  })`);
+}
+/** An expression that resolves once the page's fonts are ready and two frames have painted. */
+export const SETTLED = `document.fonts.ready.then(() => new Promise((resolve) =>
+  requestAnimationFrame(() => requestAnimationFrame(resolve))))`;
