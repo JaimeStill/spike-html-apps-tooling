@@ -7,9 +7,7 @@
 // SCREENSHOTS_FAIL=open, the narrow page's open step throws, so a run can end in an error.
 
 import { appendFileSync } from "node:fs";
-
-/** @import { Description } from "@jaimestill/spike-html-apps-tooling/screenshots.js" */
-/** @import { Page } from "@jaimestill/spike-html-apps-tooling/browser.js" */
+import type { Description, Step } from "@jaimestill/spike-html-apps-tooling/screenshots.js";
 
 /** Gives the page window.report and reports each focus, once. */
 const REPORTER = `(() => {
@@ -33,16 +31,14 @@ const REPORTER = `(() => {
   document.addEventListener("focusin", () => window.report("focus"));
 })()`;
 
-/**
- * Has the page report, as a step, under the kind.
- * @param {string} kind
- */
-const report = (kind) => async (/** @type {Page} */ page) => {
-  await page.evaluate(`${REPORTER}, window.report(${JSON.stringify(kind)})`);
-};
+/** Has the page report, as a step, under the kind. */
+const report =
+  (kind: string): Step =>
+  async (page) => {
+    await page.evaluate(`${REPORTER}, window.report(${JSON.stringify(kind)})`);
+  };
 
-/** @type {Description} */
-const description = {
+const description: Description = {
   pages: [
     { name: "long", caption: "the long page", path: "long.html" },
     { name: "focus", caption: "the focus page", path: "focus.html" },

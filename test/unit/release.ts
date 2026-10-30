@@ -1,20 +1,16 @@
 // A release's shape: a pack of the build checked against the sources, which a tag's tree installs
 // with no build step, its manifest carrying no scripts and no runtime dependency, its bin
-// executable, and the Apache 2.0 LICENSE it declares. test/unit/release.test.js runs it on a pnpm
+// executable, and the Apache 2.0 LICENSE it declares. test/unit/release.test.ts runs it on a pnpm
 // pack.
-// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.js, with no export
-// resolution, which the tests' imports by the package's name exercise, its manifest held to no
-// scripts and no dependencies, and its bin to executable.
+// Adapted from spike-html-apps-foundation (9c15b8d): test/unit/release.js, in TypeScript, with no
+// export resolution, which the tests' imports by the package's name exercise, its manifest held to
+// no scripts and no dependencies, and its bin to executable.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
-/**
- * Every file below `dir`, relative to it with / separators, sorted.
- * @param {string} dir
- * @returns {string[]}
- */
-export function listFiles(dir) {
+/** Every file below `dir`, relative to it with / separators, sorted. */
+export function listFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir, { recursive: true, encoding: "utf8" })
     .filter((path) => statSync(join(dir, path)).isFile())
@@ -22,12 +18,8 @@ export function listFiles(dir) {
     .sort();
 }
 
-/**
- * The dist/ paths a source in src/ ships as: a .ts module's emitted .js and .d.ts.
- * @param {string} source
- * @returns {string[]}
- */
-export function builtFrom(source) {
+/** The dist/ paths a source in src/ ships as: a .ts module's emitted .js and .d.ts. */
+export function builtFrom(source: string): string[] {
   if (!source.endsWith(".ts") || source.endsWith(".d.ts")) return [];
   const base = source.slice(0, -".ts".length);
   return [`dist/${base}.js`, `dist/${base}.d.ts`];
@@ -53,12 +45,9 @@ const installFields = [
 /**
  * What keeps root, a pack's package/, from being the release its package.json declares for the
  * sources in `src`, one line each.
- * @param {string} root
- * @param {string} src
- * @returns {string[]}
  */
-export function releaseProblems(root, src) {
-  const problems = [];
+export function releaseProblems(root: string, src: string): string[] {
+  const problems: string[] = [];
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
   if (manifest.license !== license) {
@@ -87,8 +76,7 @@ export function releaseProblems(root, src) {
 
   // The build against the sources: each source's emit is there, and nothing else is.
   const built = packed.filter((path) => path.startsWith("dist/"));
-  /** @type {Set<string>} */
-  const expected = new Set();
+  const expected = new Set<string>();
   for (const source of listFiles(src)) {
     const outputs = builtFrom(source);
     if (outputs.length === 0) problems.push(`src/${source} isn't a .ts source`);
@@ -102,8 +90,7 @@ export function releaseProblems(root, src) {
   }
 
   // Each bin is a built file with its shebang, executable, so the tag's tree runs it as it is.
-  /** @type {Record<string, string>} */
-  const bins = manifest.bin ?? {};
+  const bins: Record<string, string> = manifest.bin ?? {};
   for (const [name, target] of Object.entries(bins)) {
     const path = join(root, target);
     if (!existsSync(path)) problems.push(`bin ${name} is ${target}, which isn't packed`);

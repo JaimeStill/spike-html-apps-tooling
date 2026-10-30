@@ -13,8 +13,8 @@ spike-html-apps.
   holds the server's tests and the pack's check, and `test/browser/` the driver's, the server's in
   a browser, and the bin's, over the fixtures in `test/browser/fixtures/screenshots/`.
 - **Check:** `mise run check`, after `mise run install`: ESLint, Prettier, shellcheck, actionlint,
-  tsc over the sources and over the JavaScript tests (`checkJs`, against `dist/`), the build, the
-  unit tier, and the browser tier on `dist/` in the pinned chrome-headless-shell. It reads no
-  network.
+  tsc over the sources and over the TypeScript tests (`tsconfig.test.json`, against `dist/`), the
+  build, the unit tier, and the browser tier on `dist/` in the pinned chrome-headless-shell. It
+  reads no network.
 - **Currency:** `mise run currency`: every mise tool, package.json pin, and action pin behind its
   latest; silent when all are current.
