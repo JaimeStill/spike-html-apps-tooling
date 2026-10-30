@@ -1,0 +1,39 @@
+<!doctype html>
+<title>focus</title>
+<style>
+  html, body { margin: 0; }
+</style>
+<script>
+  // The profiles the page registers, by facet flag, which the description's profiles reader reads.
+  window.registry = {
+    palette: ["dawn", "dusk"],
+    space: ["wide", "tight"],
+    type: ["plain", "fancy"],
+  };
+</script>
+<script>
+  // <x-late>, defined 300 ms after the page loads and finished updating 200 ms after it connects,
+  // as a Lit element's updateComplete resolves: only then does it register the palette extra, so
+  // a reader that runs before every custom element has rendered misses it.
+  setTimeout(() => {
+    customElements.define(
+      "x-late",
+      class extends HTMLElement {
+        connectedCallback() {
+          this.updateComplete = new Promise((resolve) => setTimeout(resolve, 200)).then(() => {
+            this.dataset.updated = "yes";
+            window.registry.palette.push("extra");
+          });
+        }
+      },
+    );
+  }, 300);
+</script>
+<main>
+  <x-late></x-late>
+  <!-- The focus state is two Tab presses from the mark: b2. -->
+  <p id="start" tabindex="-1" data-focus-start="2">focus start</p>
+  <button id="b1">one</button>
+  <button id="b2">two</button>
+  <button id="b3">three</button>
+</main>

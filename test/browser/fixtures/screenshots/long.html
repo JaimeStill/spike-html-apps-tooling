@@ -1,0 +1,28 @@
+<!doctype html>
+<title>long</title>
+<style>
+  html, body, main, section, figure { margin: 0; padding: 0; display: block; }
+</style>
+<script>
+  // The profiles the page registers, by facet flag, which the description's profiles reader reads.
+  window.registry = {
+    palette: ["dawn", "dusk"],
+    space: ["wide", "tight"],
+    type: ["plain", "fancy"],
+  };
+</script>
+<!-- 3400 px tall: sections at 0, 1000, and 2300; states at 0, 1100, 1500, and 1800. Its tiles:
+     1000 (to the section at 1000, over the lower state at 1100), 800 (to the state at 1800, no
+     section within the last quarter), 1200 (no boundary within reach), and the last 400. -->
+<main>
+  <section style="height: 1000px">
+    <figure class="state" style="height: 500px"></figure>
+  </section>
+  <section>
+    <div style="height: 100px"></div>
+    <figure class="state" style="height: 400px"></figure>
+    <figure class="state" style="height: 300px"></figure>
+    <figure class="state" style="height: 500px"></figure>
+  </section>
+  <section style="height: 1100px"></section>
+</main>

@@ -1,0 +1,19 @@
+// The type check of the plain JavaScript, with no emit: the tests, the scripts, and the lint's
+// config, each typed by its JSDoc. A test imports the package by its name, so it is checked
+// against the build's declarations in dist/, as a consumer's code is.
+// Adapted from spike-html-apps-foundation (9c15b8d): tsconfig.json, checking JavaScript on node.
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2025"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": false
+  },
+  "include": ["test", "scripts", "eslint.config.js"]
+}
