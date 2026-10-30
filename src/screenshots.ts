@@ -1,8 +1,7 @@
-// The screenshot command's engine, which bin/screenshots.js runs: the consumer's description
-// module, the first argument, gives the pages, states, facets, and server, and the flags choose the
-// profiles, pages, schemes, and output. Each capture is a fresh page, rendered and focused by real
-// Tab presses; a full page is cut into tiles. A consumer types its description module's default
-// export as Description.
+// The screenshot command's engine, which bin/screenshots.ts runs: the consumer's description
+// module, the first argument, typed as Description, gives the pages, states, facets, and server,
+// and the flags choose the profiles, pages, schemes, and output. Each capture is a fresh page,
+// rendered and focused by real Tab presses; a full page is cut into tiles.
 // Adapted from spike-html-apps-components (8ba2be0), spike-html-apps-foundation (6e9669f), and
 // spike-html-apps-noctis (7d7351a): scripts/screenshots.js and scripts/screenshots.sh, in
 // TypeScript.
@@ -516,15 +515,20 @@ export async function main(argv: string[]): Promise<number> {
   const description = await load(path);
   const { facets } = description;
 
-  const options: ParseArgsOptionsConfig = {
+  const flags = {
     all: { type: "boolean" },
     page: { type: "string", multiple: true },
     scheme: { type: "string", multiple: true },
     output: { type: "string", default: OUTPUTS[0] },
     dir: { type: "string" },
     keep: { type: "boolean" },
-  };
-  for (const { flag } of facets) options[flag] = { type: "string" };
+  } satisfies ParseArgsOptionsConfig;
+  const facetFlags: Record<string, { type: "string" }> = Object.fromEntries(
+    facets.map(({ flag }) => [flag, { type: "string" }]),
+  );
+  // Object.assign's type is the intersection, so the bin's own flags keep their value types
+  // beside the facets' index.
+  const options = Object.assign({}, facetFlags, flags);
   let values;
   try {
     ({ values } = parseArgs({ args, options, strict: true, allowPositionals: false }));
@@ -532,12 +536,12 @@ export async function main(argv: string[]): Promise<number> {
     console.error(`${NAME}: ${(error as Error).message}\n${usage(facets)}`);
     return 2;
   }
-  const schemes = values.scheme as string[] | undefined;
-  const output = values.output as string;
+  const { scheme: schemes, output } = values;
   /** Each facet flag given, by flag, to the name it gives. */
   const named = new Map<string, string>();
   for (const { flag } of facets) {
-    if (values[flag] !== undefined) named.set(flag, values[flag] as string);
+    const name = values[flag];
+    if (typeof name === "string") named.set(flag, name);
   }
   const misuse =
     (values.all && named.size > 0 && "--all takes no facet flag") ||
@@ -552,7 +556,7 @@ export async function main(argv: string[]): Promise<number> {
 
   // The run's pages: those --page names, in the description's order, or every page. An unknown
   // name lists the pages, before the server or the browser starts.
-  const chosen = values.page as string[] | undefined;
+  const chosen = values.page;
   const names = description.pages.map(({ name }) => name);
   const unknownPage = chosen?.find((name) => !names.includes(name));
   if (unknownPage !== undefined) {
@@ -580,7 +584,7 @@ export async function main(argv: string[]): Promise<number> {
   }
   const pages = description.pages.filter(({ name }) => !chosen || chosen.includes(name));
 
-  const written = files(values.dir as string | undefined);
+  const written = files(values.dir);
   const shown = outputs[output](written, { keep: values.keep === true });
   let server: Server | undefined;
   let browser: Browser | undefined;
