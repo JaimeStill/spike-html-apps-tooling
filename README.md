@@ -3,9 +3,8 @@
 The browser-test and screenshot tooling the
 [spike-html-apps](https://github.com/JaimeStill/spike-html-apps) repositories share: a driver for
 Chrome over the DevTools Protocol, a page wait, a static server, a process helper that starts any
-other server, and a screenshot command. It is
-Node ES modules, written in TypeScript and shipped built, with type declarations and no runtime
-dependency, and is released by git tag.
+other server, and a screenshot command. It is Node ES modules, written in TypeScript and shipped
+built, with type declarations and no runtime dependency, and is released by git tag.
 
 ## Install
 
@@ -113,13 +112,12 @@ spike-html-apps-screenshots <description> [--all | --<facet> <name>...] [--page 
 ```
 
 `<description>` is the path of a module whose default export is a `Description`, whose shape
-[`src/screenshots.ts`](src/screenshots.ts) gives. It lists the pages, each with a name, a
-caption, a path, and its states, and each state captures either the full page or one viewport.
-It also gives the profile's facets, each with its flag, the root attribute it sets, and its
-default; the profiles `--all` captures; how to read the profiles a page registers; and the
-server the pages are served from. A consumer under `checkJs`
-types the export; the package's types import `node:http`, so a consumer that checks them needs
-`@types/node`, or `skipLibCheck`:
+[`src/screenshots.ts`](src/screenshots.ts) gives. It lists the pages, each with a name, a caption, a
+path, and its states, and each state captures either the full page or one viewport. It also gives
+the profile's facets, each with its flag, the root attribute it sets, and its default; the profiles
+`--all` captures; how to read the profiles a page registers; and the server the pages are served
+from. A consumer under `checkJs` types the export; the package's types import `node:http`, so a
+consumer that checks them needs `@types/node`, or `skipLibCheck`:
 
 ```js
 /** @type {import("@jaimestill/spike-html-apps-tooling/screenshots.js").Description} */

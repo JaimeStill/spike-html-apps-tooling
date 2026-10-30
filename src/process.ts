@@ -1,9 +1,7 @@
-// The process helper: a command that serves an app, a server or a task runner that starts one,
-// started in a process group of its own, ready once a URL answers 2xx over HTTP, and stopped by
-// ending the whole group, so a server the command starts as a grandchild ends with it. And
-// freePort, a loopback port no one listens on, for the command's server to take.
-// The group's ending follows browser.ts's launch: a detached child, the group's liveness read from
-// /proc, and SIGKILL from an exit listener when the caller never ends it.
+// The process helper: a command that serves an app, started in a process group of its own, ready
+// once a URL answers 2xx over HTTP, and stopped by ending the whole group, so a server it starts
+// as a grandchild ends with it; and freePort. The group's ending follows browser.ts's launch: a
+// detached child, its liveness from group.ts, and SIGKILL from an exit listener if never stopped.
 
 import { spawn } from "node:child_process";
 import { get as httpGet } from "node:http";
